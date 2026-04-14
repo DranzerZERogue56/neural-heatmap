@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Heat Map Playground</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a0f;
+  --panel-bg: rgba(12, 12, 25, 0.85);
+  --panel-border: rgba(0, 200, 255, 0.25);
+  --accent: #00c8ff;
+  --accent2: #ff00aa;
+  --text: #c0c8e0;
+  --text-dim: #606880;
+  --slider-track: #1a1a2e;
+  --slider-thumb: var(--accent);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Share Tech Mono', monospace;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Navigation */
+#nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 20px;
+  height: 42px;
+  min-height: 42px;
+  background: rgba(8, 8, 18, 0.95);
+  border-bottom: 1px solid var(--panel-border);
+  z-index: 200;
+}
+
+#nav .nav-brand {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(0, 200, 255, 0.4);
+}
+
+#nav a {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  transition: all 0.15s;
+  letter-spacing: 1px;
+}
+
+#nav a:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+#nav a.active { color: var(--accent); background: rgba(0, 200, 255, 0.08); border: 1px solid rgba(0, 200, 255, 0.2); }
+
+#main-content {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* Canvas area */
+#canvas-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-width: 0;
+}
+
+canvas {
+  display: block;
+  cursor: crosshair;
+  border: 1px solid rgba(0, 200, 255, 0.15);
+  box-shadow: 0 0 40px rgba(0, 200, 255, 0.06);
+}
+
+/* Stats bar */
+#stats {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  gap: 18px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--panel-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+}
+#stats span { color: var(--accent); }
+
+/* Controls panel */
+#panel {
+  width: 320px;
+  min-width: 320px;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-left: 1px solid var(--panel-border);
+  padding: 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: #1a1a2e transparent;
+}
+
+#panel::-webkit-scrollbar { width: 5px; }
+#panel::-webkit-scrollbar-track { background: transparent; }
+#panel::-webkit-scrollbar-thumb { background: #1a1a2e; border-radius: 3px; }
+
+#panel h1 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  text-shadow: 0 0 20px rgba(0, 200, 255, 0.5);
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+#panel .subtitle {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  margin-bottom: 12px;
+  letter-spacing: 1px;
+}
+
+.group {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 8px;
+  padding: 12px 12px 8px;
+  margin-bottom: 2px;
+}
+
+.group-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent2);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 0, 170, 0.15);
+}
+
+.control {
+  margin-bottom: 10px;
+}
+
+.control-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.control-label {
+  font-size: 11px;
+  color: var(--text);
+  cursor: help;
+  position: relative;
+}
+
+.control-label .tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 240px;
+  background: #12122a;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 10px;
+  color: var(--text);
+  line-height: 1.5;
+  z-index: 100;
+  box-shadow: 0 0 20px rgba(0, 200, 255, 0.2);
+  pointer-events: none;
+}
+
+.control-label:hover .tip {
+  display: block;
+}
+
+.control-value {
+  font-size: 11px;
+  color: var(--accent);
+  min-width: 32px;
+  text-align: right;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--slider-track);
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(0, 200, 255, 0.5);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 8px rgba(0, 200, 255, 0.5);
+}
+
+.toggle-row {
+  display: flex;
+  gap: 6px;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 6px 0;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-dim);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toggle-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(0, 200, 255, 0.08);
+  box-shadow: 0 0 10px rgba(0, 200, 255, 0.15);
+}
+
+.toggle-btn:hover {
+  border-color: rgba(0, 200, 255, 0.4);
+}
+
+.action-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.action-btn {
+  flex: 1;
+  padding: 10px 0;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid;
+}
+
+.btn-pause {
+  background: rgba(0, 200, 255, 0.1);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.btn-pause:hover {
+  background: rgba(0, 200, 255, 0.2);
+  box-shadow: 0 0 15px rgba(0, 200, 255, 0.3);
+}
+
+.btn-reset {
+  background: rgba(255, 0, 170, 0.1);
+  color: var(--accent2);
+  border-color: var(--accent2);
+}
+.btn-reset:hover {
+  background: rgba(255, 0, 170, 0.2);
+  box-shadow: 0 0 15px rgba(255, 0, 170, 0.3);
+}
+
+.btn-export {
+  background: rgba(100, 255, 100, 0.08);
+  color: #66ff88;
+  border-color: #66ff88;
+}
+.btn-export:hover {
+  background: rgba(100, 255, 100, 0.15);
+  box-shadow: 0 0 15px rgba(100, 255, 100, 0.2);
+}
+
+select {
+  width: 100%;
+  padding: 6px 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  background: #0e0e1a;
+  color: var(--text);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 5px;
+  outline: none;
+  cursor: pointer;
+}
+select:focus { border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <div class="nav-brand">CyberSim</div>
+  <a href="neural-heatmap.html" class="active">Neural Heatmap</a>
+  <a href="aws-attack-surface.html">Attack Surface</a>
+  <a href="tutorial-neural.html">How It Works: Neural</a>
+  <a href="tutorial-aws.html">How It Works: AWS</a>
+</nav>
+<div id="main-content">
+<div id="canvas-wrap">
+  <canvas id="heatmap"></canvas>
+  <div id="stats">
+    Active: <span id="stat-active">0</span> &nbsp;|&nbsp;
+    Avg: <span id="stat-avg">0.00</span> &nbsp;|&nbsp;
+    TPS: <span id="stat-tps">0</span>
+  </div>
+</div>
+
+<div id="panel">
+  <h1>Neural Heatmap</h1>
+  <div class="subtitle">// simulated activation playground</div>
+  <a href="tutorial-neural.html" style="display:block;text-align:center;font-size:10px;color:var(--accent);text-decoration:none;padding:6px 0 10px;opacity:0.7;transition:opacity 0.15s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">Learn How This Works &rarr;</a>
+
+  <!-- Grid -->
+  <div class="group">
+    <div class="group-title">Grid</div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Grid Size
+          <div class="tip">The number of neurons per row and column (N&times;N). Larger grids show finer detail but cost more to compute.</div>
+        </div>
+        <div class="control-value" id="v-grid">60</div>
+      </div>
+      <input type="range" id="c-grid" min="20" max="120" value="60" step="1">
+    </div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Neighbor Mode
+          <div class="tip">4-dir spreads activation up/down/left/right. 8-dir also includes diagonals, producing rounder, more organic patterns.</div>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <button class="toggle-btn" id="btn-4dir" onclick="setNeighborMode(4)">4-Dir</button>
+        <button class="toggle-btn active" id="btn-8dir" onclick="setNeighborMode(8)">8-Dir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Neuron Behavior -->
+  <div class="group">
+    <div class="group-title">Neuron Behavior</div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Fire Threshold
+          <div class="tip">A neuron fires when its activation exceeds this value. Lower values make neurons trigger more easily, creating denser patterns.</div>
+        </div>
+        <div class="control-value" id="v-threshold">0.40</div>
+      </div>
+      <input type="range" id="c-threshold" min="0.1" max="0.9" value="0.4" step="0.01">
+    </div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Propagation Strength
+          <div class="tip">How much activation a firing neuron spreads to its neighbors. Higher values create waves that travel further across the grid.</div>
+        </div>
+        <div class="control-value" id="v-propagation">0.30</div>
+      </div>
+      <input type="range" id="c-propagation" min="0" max="1" value="0.3" step="0.01">
+    </div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Decay Rate
+          <div class="tip">How quickly a neuron's activation fades when it isn't being stimulated. Higher values make patterns dissolve faster.</div>
+        </div>
+        <div class="control-value" id="v-decay">0.05</div>
+      </div>
+      <input type="range" id="c-decay" min="0.01" max="0.5" value="0.05" step="0.01">
+    </div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Refractory Period
+          <div class="tip">How many ticks a neuron must cool down after firing before it can fire again. Creates rhythmic, wave-like behavior.</div>
+        </div>
+        <div class="control-value" id="v-refractory">5</div>
+      </div>
+      <input type="range" id="c-refractory" min="0" max="20" value="5" step="1">
+    </div>
+  </div>
+
+  <!-- Stimulation -->
+  <div class="group">
+    <div class="group-title">Stimulation</div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Seed Rate
+          <div class="tip">Number of random neurons stimulated each tick. More seeds produce busier, more chaotic patterns.</div>
+        </div>
+        <div class="control-value" id="v-seedrate">5</div>
+      </div>
+      <input type="range" id="c-seedrate" min="1" max="50" value="5" step="1">
+    </div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Seed Intensity
+          <div class="tip">How much activation is injected into each randomly stimulated neuron. Higher values make seeds more likely to trigger a firing cascade.</div>
+        </div>
+        <div class="control-value" id="v-seedintensity">0.60</div>
+      </div>
+      <input type="range" id="c-seedintensity" min="0.1" max="1" value="0.6" step="0.01">
+    </div>
+  </div>
+
+  <!-- Rendering -->
+  <div class="group">
+    <div class="group-title">Rendering</div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Glow Intensity
+          <div class="tip">Controls the bloom/glow effect on highly activated neurons. Higher values create a stronger neon glow.</div>
+        </div>
+        <div class="control-value" id="v-glow">0.60</div>
+      </div>
+      <input type="range" id="c-glow" min="0" max="1" value="0.6" step="0.01">
+    </div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Color Scheme
+          <div class="tip">Choose a cyberpunk color palette for the heat map visualization.</div>
+        </div>
+      </div>
+      <select id="c-colorscheme">
+        <option value="bluepink">Blue / Pink</option>
+        <option value="greencyan">Green / Cyan</option>
+        <option value="redorange">Red / Orange</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Simulation -->
+  <div class="group">
+    <div class="group-title">Simulation</div>
+    <div class="control">
+      <div class="control-header">
+        <div class="control-label">Tick Speed
+          <div class="tip">How many simulation ticks run per second. Faster speeds make patterns evolve more quickly.</div>
+        </div>
+        <div class="control-value" id="v-tickspeed">30</div>
+      </div>
+      <input type="range" id="c-tickspeed" min="1" max="60" value="30" step="1">
+    </div>
+    <div class="action-row">
+      <button class="action-btn btn-pause" id="btn-pause" onclick="togglePause()">Pause</button>
+      <button class="action-btn btn-reset" onclick="resetSim()">Reset</button>
+    </div>
+    <div class="action-row" style="margin-top:6px;">
+      <button class="action-btn btn-export" onclick="exportPNG()">Export PNG</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- main-content -->
+<script>
+// --- State ---
+const canvas = document.getElementById('heatmap');
+const ctx = canvas.getContext('2d');
+
+let N = 60;
+let neighborMode = 8;
+let fireThreshold = 0.4;
+let propagationStrength = 0.3;
+let decayRate = 0.05;
+let refractoryPeriod = 5;
+let seedRate = 5;
+let seedIntensity = 0.6;
+let glowIntensity = 0.6;
+let colorScheme = 'bluepink';
+let tickSpeed = 30;
+let paused = false;
+
+let activation, refractory, nextActivation;
+let tickCount = 0;
+let lastTpsTime = performance.now();
+let tpsCounter = 0;
+let currentTps = 0;
+
+// Color palettes: each is an array of {pos, r, g, b} stops
+const palettes = {
+  bluepink: [
+    {pos: 0.0,  r: 10,  g: 8,   b: 30},
+    {pos: 0.15, r: 20,  g: 12,  b: 80},
+    {pos: 0.35, r: 30,  g: 60,  b: 180},
+    {pos: 0.55, r: 120, g: 40,  b: 200},
+    {pos: 0.75, r: 255, g: 0,   b: 170},
+    {pos: 0.9,  r: 255, g: 150, b: 220},
+    {pos: 1.0,  r: 255, g: 240, b: 255},
+  ],
+  greencyan: [
+    {pos: 0.0,  r: 8,   g: 12,  b: 10},
+    {pos: 0.15, r: 10,  g: 40,  b: 30},
+    {pos: 0.35, r: 0,   g: 120, b: 80},
+    {pos: 0.55, r: 0,   g: 200, b: 150},
+    {pos: 0.75, r: 0,   g: 255, b: 220},
+    {pos: 0.9,  r: 150, g: 255, b: 240},
+    {pos: 1.0,  r: 240, g: 255, b: 255},
+  ],
+  redorange: [
+    {pos: 0.0,  r: 15,  g: 5,   b: 5},
+    {pos: 0.15, r: 60,  g: 10,  b: 10},
+    {pos: 0.35, r: 160, g: 20,  b: 0},
+    {pos: 0.55, r: 230, g: 60,  b: 0},
+    {pos: 0.75, r: 255, g: 140, b: 0},
+    {pos: 0.9,  r: 255, g: 220, b: 80},
+    {pos: 1.0,  r: 255, g: 255, b: 230},
+  ],
+};
+
+// Pre-computed LUT for current palette (256 entries)
+let colorLUT = new Uint8Array(256 * 3);
+
+function buildColorLUT() {
+  const stops = palettes[colorScheme];
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    // Find surrounding stops
+    let lo = stops[0], hi = stops[stops.length - 1];
+    for (let s = 0; s < stops.length - 1; s++) {
+      if (t >= stops[s].pos && t <= stops[s + 1].pos) {
+        lo = stops[s];
+        hi = stops[s + 1];
+        break;
+      }
+    }
+    const range = hi.pos - lo.pos || 1;
+    const f = (t - lo.pos) / range;
+    colorLUT[i * 3]     = lo.r + (hi.r - lo.r) * f | 0;
+    colorLUT[i * 3 + 1] = lo.g + (hi.g - lo.g) * f | 0;
+    colorLUT[i * 3 + 2] = lo.b + (hi.b - lo.b) * f | 0;
+  }
+}
+
+function initArrays() {
+  activation = new Float32Array(N * N);
+  refractory = new Int32Array(N * N);
+  nextActivation = new Float32Array(N * N);
+}
+
+function resetSim() {
+  initArrays();
+  tickCount = 0;
+}
+
+// --- Direction lookup (hoisted out of hot loop to avoid per-fire allocations) ---
+const DIRS4 = [-1,0, 1,0, 0,-1, 0,1];               // flat: [dx,dy, dx,dy, ...]
+const DIRS8 = [-1,0, 1,0, 0,-1, 0,1, -1,-1, 1,-1, -1,1, 1,1];
+
+// --- Simulation ---
+function tick() {
+  const n2 = N * N;
+
+  // Copy current activation to next
+  nextActivation.set(activation);
+
+  // Random seeds
+  for (let s = 0; s < seedRate; s++) {
+    const idx = Math.random() * n2 | 0;
+    if (refractory[idx] <= 0) {
+      nextActivation[idx] = Math.min(1, nextActivation[idx] + seedIntensity);
+    }
+  }
+
+  // Propagation from fired neurons
+  const dirs = neighborMode === 8 ? DIRS8 : DIRS4;
+  const dirCount = dirs.length >> 1;
+  const spread = propagationStrength / dirCount;
+  for (let i = 0; i < n2; i++) {
+    if (activation[i] > fireThreshold && refractory[i] <= 0) {
+      const x = i % N;
+      const y = i / N | 0;
+      const aSpread = activation[i] * spread;
+      for (let d = 0; d < dirs.length; d += 2) {
+        const nx = x + dirs[d];
+        const ny = y + dirs[d + 1];
+        if (nx >= 0 && nx < N && ny >= 0 && ny < N) {
+          const ni = ny * N + nx;
+          if (refractory[ni] <= 0) {
+            nextActivation[ni] = Math.min(1, nextActivation[ni] + aSpread);
+          }
+        }
+      }
+      refractory[i] = refractoryPeriod;
+    }
+  }
+
+  // Decay and update refractory
+  for (let i = 0; i < n2; i++) {
+    nextActivation[i] = Math.max(0, nextActivation[i] - decayRate);
+    if (refractory[i] > 0) refractory[i]--;
+  }
+
+  // Swap
+  const tmp = activation;
+  activation = nextActivation;
+  nextActivation = tmp;
+
+  tickCount++;
+  tpsCounter++;
+}
+
+// --- Rendering ---
+let imgData;
+let bgData; // pre-filled background pixel buffer
+
+// Offscreen canvas for glow (single blur instead of per-cell)
+const glowCanvas = document.createElement('canvas');
+const glowCtx = glowCanvas.getContext('2d');
+
+// Cached stat DOM refs
+const statActiveEl = document.getElementById('stat-active');
+const statAvgEl = document.getElementById('stat-avg');
+const statTpsEl = document.getElementById('stat-tps');
+
+function resizeCanvas() {
+  const wrap = document.getElementById('canvas-wrap');
+  const size = Math.min(wrap.clientWidth - 40, wrap.clientHeight - 60);
+  canvas.width = size;
+  canvas.height = size;
+  imgData = ctx.createImageData(canvas.width, canvas.height);
+
+  // Pre-fill a background buffer so we can copy instead of per-pixel loop
+  bgData = new Uint8Array(imgData.data.length);
+  for (let i = 0; i < bgData.length; i += 4) {
+    bgData[i] = 10; bgData[i+1] = 8; bgData[i+2] = 15; bgData[i+3] = 255;
+  }
+
+  // Size glow canvas to a smaller resolution for cheaper blur
+  glowCanvas.width = N;
+  glowCanvas.height = N;
+}
+
+function render() {
+  const w = canvas.width;
+  const h = canvas.height;
+  const cellW = w / N;
+  const cellH = h / N;
+  const data = imgData.data;
+
+  // Fast background fill via typed array copy
+  data.set(bgData);
+
+  for (let cy = 0; cy < N; cy++) {
+    const pyStart = cy * cellH | 0;
+    const pyEnd = (cy + 1) * cellH | 0;
+    for (let cx = 0; cx < N; cx++) {
+      const val = activation[cy * N + cx];
+      const ci = (val * 255) | 0;
+      const r = colorLUT[ci * 3];
+      const g = colorLUT[ci * 3 + 1];
+      const b = colorLUT[ci * 3 + 2];
+
+      const pxStart = cx * cellW | 0;
+      const pxEnd = (cx + 1) * cellW | 0;
+
+      for (let py = pyStart; py < pyEnd; py++) {
+        const rowOff = py * w * 4;
+        for (let px = pxStart; px < pxEnd; px++) {
+          const off = rowOff + px * 4;
+          data[off] = r;
+          data[off + 1] = g;
+          data[off + 2] = b;
+          // alpha already 255 from bgData
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+
+  // Glow pass: render hot cells to small offscreen canvas, blur once, composite
+  if (glowIntensity > 0.01) {
+    const gImg = glowCtx.createImageData(N, N);
+    const gd = gImg.data;
+    for (let cy = 0; cy < N; cy++) {
+      for (let cx = 0; cx < N; cx++) {
+        const val = activation[cy * N + cx];
+        if (val > 0.5) {
+          const ci = (val * 255) | 0;
+          const off = (cy * N + cx) * 4;
+          gd[off]     = colorLUT[ci * 3];
+          gd[off + 1] = colorLUT[ci * 3 + 1];
+          gd[off + 2] = colorLUT[ci * 3 + 2];
+          gd[off + 3] = 255;
+        }
+      }
+    }
+    glowCtx.putImageData(gImg, 0, 0);
+
+    // Draw the small glow texture scaled up with blur — single composite op
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = glowIntensity * 0.4;
+    ctx.filter = `blur(${(cellW * 1.2) | 0}px)`;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(glowCanvas, 0, 0, w, h);
+    ctx.restore();
+  }
+
+  // Stats — throttled to once per second
+  const now = performance.now();
+  if (now - lastTpsTime >= 1000) {
+    currentTps = tpsCounter;
+    tpsCounter = 0;
+    lastTpsTime = now;
+
+    let activeCount = 0, sum = 0;
+    const n2 = N * N;
+    for (let i = 0; i < n2; i++) {
+      sum += activation[i];
+      if (activation[i] > fireThreshold) activeCount++;
+    }
+    statActiveEl.textContent = activeCount;
+    statAvgEl.textContent = (sum / n2).toFixed(3);
+    statTpsEl.textContent = currentTps;
+  }
+}
+
+// --- Main Loop ---
+let lastTickTime = 0;
+
+function loop(timestamp) {
+  requestAnimationFrame(loop);
+
+  if (!paused) {
+    const interval = 1000 / tickSpeed;
+    if (timestamp - lastTickTime >= interval) {
+      // Run potentially multiple ticks if behind, but cap
+      const elapsed = timestamp - lastTickTime;
+      const steps = Math.min(Math.floor(elapsed / interval), 4);
+      for (let i = 0; i < steps; i++) tick();
+      lastTickTime = timestamp - (elapsed % interval);
+    }
+  }
+
+  render();
+}
+
+// --- Controls ---
+function bindSlider(id, setter) {
+  const el = document.getElementById('c-' + id);
+  const vEl = document.getElementById('v-' + id);
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    vEl.textContent = el.step.includes('.') ? v.toFixed(2) : v;
+    setter(v);
+  });
+}
+
+bindSlider('grid', v => {
+  N = v | 0;
+  resetSim();
+  resizeCanvas();
+});
+bindSlider('threshold', v => fireThreshold = v);
+bindSlider('propagation', v => propagationStrength = v);
+bindSlider('decay', v => decayRate = v);
+bindSlider('refractory', v => refractoryPeriod = v | 0);
+bindSlider('seedrate', v => seedRate = v | 0);
+bindSlider('seedintensity', v => seedIntensity = v);
+bindSlider('glow', v => glowIntensity = v);
+bindSlider('tickspeed', v => tickSpeed = v | 0);
+
+document.getElementById('c-colorscheme').addEventListener('change', e => {
+  colorScheme = e.target.value;
+  buildColorLUT();
+});
+
+function setNeighborMode(mode) {
+  neighborMode = mode;
+  document.getElementById('btn-4dir').classList.toggle('active', mode === 4);
+  document.getElementById('btn-8dir').classList.toggle('active', mode === 8);
+}
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById('btn-pause').textContent = paused ? 'Resume' : 'Pause';
+}
+
+function exportPNG() {
+  const link = document.createElement('a');
+  link.download = 'neural-heatmap.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+// Click to inject activation
+canvas.addEventListener('mousedown', e => {
+  injectAtEvent(e);
+});
+canvas.addEventListener('mousemove', e => {
+  if (e.buttons === 1) injectAtEvent(e);
+});
+
+function injectAtEvent(e) {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / rect.width;
+  const my = (e.clientY - rect.top) / rect.height;
+  const cx = (mx * N) | 0;
+  const cy = (my * N) | 0;
+  // Inject in a small radius
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx >= 0 && nx < N && ny >= 0 && ny < N) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= 2.5) {
+          const idx = ny * N + nx;
+          activation[idx] = Math.min(1, activation[idx] + (1 - dist / 3));
+          refractory[idx] = 0;
+        }
+      }
+    }
+  }
+}
+
+// --- Visibility handling: prevent catch-up ticks after tab switch ---
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    lastTickTime = performance.now();
+  }
+});
+
+// --- Init ---
+window.addEventListener('resize', resizeCanvas);
+
+buildColorLUT();
+initArrays();
+resizeCanvas();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
