@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How It Works — Neural Heat Map</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a0f;
+  --panel-bg: rgba(12, 12, 25, 0.85);
+  --panel-border: rgba(0, 200, 255, 0.25);
+  --accent: #00c8ff;
+  --accent2: #ff00aa;
+  --text: #c0c8e0;
+  --text-dim: #606880;
+  --green: #00ff88;
+  --amber: #ffaa00;
+  --red: #ff3355;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Share Tech Mono', monospace;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Nav ── */
+#nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 20px;
+  height: 42px;
+  min-height: 42px;
+  background: rgba(8, 8, 18, 0.95);
+  border-bottom: 1px solid var(--panel-border);
+  z-index: 200;
+  position: sticky;
+  top: 0;
+  flex-wrap: wrap;
+}
+#nav .nav-brand {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(0, 200, 255, 0.4);
+}
+#nav a {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  transition: all 0.15s;
+  letter-spacing: 1px;
+}
+#nav a:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+#nav a.active { color: var(--accent); background: rgba(0, 200, 255, 0.08); border: 1px solid rgba(0, 200, 255, 0.2); }
+
+/* ── Layout ── */
+#page-wrap {
+  display: flex;
+  flex: 1;
+}
+
+/* ── Table of Contents ── */
+#toc {
+  width: 260px;
+  min-width: 260px;
+  position: sticky;
+  top: 42px;
+  height: calc(100vh - 42px);
+  overflow-y: auto;
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  border-right: 1px solid var(--panel-border);
+  padding: 24px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: #1a1a2e transparent;
+}
+#toc::-webkit-scrollbar { width: 4px; }
+#toc::-webkit-scrollbar-thumb { background: #1a1a2e; border-radius: 2px; }
+
+#toc h3 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  color: var(--accent2);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,0,170,0.2);
+}
+
+#toc a {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-left: 2px solid transparent;
+  border-radius: 0 4px 4px 0;
+  margin-bottom: 2px;
+  transition: all 0.15s;
+  line-height: 1.4;
+}
+#toc a:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+#toc a.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: rgba(0, 200, 255, 0.05);
+}
+
+/* ── Mobile TOC toggle ── */
+#toc-toggle {
+  display: none;
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0,200,255,0.15);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 18px;
+  cursor: pointer;
+  z-index: 300;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 20px rgba(0,200,255,0.2);
+}
+
+@media (max-width: 900px) {
+  #toc {
+    position: fixed;
+    left: -280px;
+    top: 42px;
+    z-index: 250;
+    transition: left 0.3s;
+    box-shadow: 4px 0 30px rgba(0,0,0,0.5);
+  }
+  #toc.open { left: 0; }
+  #toc-toggle { display: flex; align-items: center; justify-content: center; }
+}
+
+/* ── Content ── */
+#content {
+  flex: 1;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 40px 40px 80vh;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  #content { padding: 24px 18px 80vh; }
+}
+
+/* ── Headings ── */
+.section-heading {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  margin: 60px 0 8px;
+  padding-top: 20px;
+  letter-spacing: 1px;
+  text-shadow: 0 0 30px rgba(0, 200, 255, 0.3);
+}
+.section-heading .num {
+  color: var(--accent);
+  font-size: 14px;
+  margin-right: 10px;
+  opacity: 0.7;
+}
+.section-heading:first-of-type { margin-top: 0; }
+
+.section-sub {
+  font-size: 12px;
+  color: var(--accent2);
+  margin-bottom: 20px;
+  letter-spacing: 1px;
+}
+
+/* ── Prose ── */
+.prose {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--text);
+  margin-bottom: 20px;
+}
+.prose strong { color: #fff; }
+.prose em { color: var(--accent); font-style: normal; }
+
+/* ── Pseudocode ── */
+.code-block {
+  background: rgba(8, 8, 20, 0.9);
+  border: 1px solid rgba(0, 200, 255, 0.15);
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.code-block .code-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0,200,255,0.1);
+}
+.code-block .kw { color: var(--accent2); }
+.code-block .fn { color: var(--accent); }
+.code-block .cm { color: var(--text-dim); font-style: italic; }
+.code-block .num { color: var(--green); }
+.code-block .str { color: var(--amber); }
+.code-block .op { color: #fff; }
+
+.code-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: -10px 0 20px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--accent2);
+  background: rgba(255,0,170,0.03);
+  border-radius: 0 4px 4px 0;
+  line-height: 1.6;
+}
+
+/* ── Diagrams ── */
+.diagram-wrap {
+  margin: 30px 0;
+  background: rgba(8, 8, 20, 0.6);
+  border: 1px solid rgba(0, 200, 255, 0.12);
+  border-radius: 10px;
+  padding: 24px;
+  overflow: hidden;
+}
+.diagram-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  text-align: center;
+}
+.diagram-caption {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+/* ── Figure (screenshot placeholder) ── */
+.figure {
+  margin: 30px 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(8, 8, 20, 0.5);
+}
+.figure-img {
+  width: 100%;
+  height: 280px;
+  background: linear-gradient(135deg, #0c0c1a, #12122e);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border-bottom: 1px solid rgba(0,200,255,0.1);
+}
+.figure-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 12px;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+.figure-caption {
+  padding: 14px 18px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.figure-caption strong { color: #fff; }
+
+.callout-badge {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent2);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 10px rgba(255,0,170,0.5);
+}
+
+.callout-list {
+  padding: 8px 18px 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  border-top: 1px solid rgba(255,255,255,0.03);
+}
+.callout-list .cl-item {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.cl-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent2);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── Anatomy Card ── */
+.anatomy-card {
+  background: rgba(8, 8, 20, 0.8);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 20px;
+  margin: 24px 0;
+}
+.anatomy-card .card-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 12px;
+  color: #fff;
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.stat-item {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+  padding: 12px;
+}
+.stat-item .stat-label {
+  font-size: 9px;
+  color: var(--accent2);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+.stat-item .stat-value {
+  font-size: 16px;
+  color: var(--accent);
+  font-weight: 700;
+}
+.stat-item .stat-desc {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+/* ── Reference Table ── */
+.ref-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 12px;
+}
+.ref-table th {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 9px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--accent);
+  background: rgba(0,200,255,0.05);
+}
+.ref-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  vertical-align: top;
+  line-height: 1.5;
+}
+.ref-table tr:hover td { background: rgba(255,255,255,0.02); }
+.ref-table .param-name { color: var(--accent); font-weight: 700; }
+
+/* ── Link Cards ── */
+.link-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 20px 0;
+}
+@media (max-width: 700px) { .link-cards { grid-template-columns: 1fr; } }
+
+.link-card {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(0,200,255,0.12);
+  border-radius: 8px;
+  padding: 16px;
+  text-decoration: none;
+  color: var(--text);
+  transition: all 0.15s;
+  display: block;
+}
+.link-card:hover {
+  border-color: var(--accent);
+  background: rgba(0,200,255,0.04);
+  box-shadow: 0 0 15px rgba(0,200,255,0.1);
+}
+.link-card .lc-title {
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.link-card .lc-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* ── Color gradient diagram ── */
+.gradient-bar {
+  height: 30px;
+  border-radius: 6px;
+  position: relative;
+  margin: 10px 0;
+}
+.gradient-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+.gradient-marker {
+  position: absolute;
+  top: -18px;
+  font-size: 9px;
+  color: #fff;
+  transform: translateX(-50%);
+}
+.gradient-marker::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 34px;
+  background: rgba(255,255,255,0.3);
+}
+
+/* ── Canvas diagrams ── */
+.diagram-canvas {
+  display: block;
+  margin: 0 auto;
+}
+</style>
+</head>
+<body>
+
+<nav id="nav">
+  <div class="nav-brand">CyberSim</div>
+  <a href="neural-heatmap.html">Neural Heatmap</a>
+  <a href="aws-attack-surface.html">Attack Surface</a>
+  <a href="tutorial-neural.html" class="active">How It Works: Neural</a>
+  <a href="tutorial-aws.html">How It Works: AWS</a>
+</nav>
+
+<button id="toc-toggle" onclick="document.getElementById('toc').classList.toggle('open')">&#9776;</button>
+
+<div id="page-wrap">
+
+<aside id="toc">
+  <h3>Contents</h3>
+  <a href="#s1" data-section="s1">1. What Is a Heat Map?</a>
+  <a href="#s2" data-section="s2">2. What Is a Neural Network?</a>
+  <a href="#s3" data-section="s3">3. How This Simulation Models Neural Firing</a>
+  <a href="#s4" data-section="s4">4. The Neuron: Anatomy of a Single Cell</a>
+  <a href="#s5" data-section="s5">5. Activation, Threshold & Propagation</a>
+  <a href="#s6" data-section="s6">6. Decay & The Refractory Period</a>
+  <a href="#s7" data-section="s7">7. How the Heat Map Is Rendered</a>
+  <a href="#s8" data-section="s8">8. Walking Through One Full Tick</a>
+  <a href="#s9" data-section="s9">9. What the Parameters Actually Do</a>
+  <a href="#s10" data-section="s10">10. Real Neural Networks vs. This Simulation</a>
+  <a href="#s11" data-section="s11">11. Further Reading & Resources</a>
+</aside>
+
+<main id="content">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 1 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s1"><span class="num">01</span>What Is a Heat Map?</h2>
+<div class="section-sub">// encoding data as color</div>
+
+<p class="prose">
+A <em>heat map</em> is a way of visualizing data where individual values are represented as colors. Think of a weather radar: blue means cool, red means hot. The same idea applies here — except instead of temperature, we're mapping the <strong>activation level</strong> of simulated neurons onto a grid of colored cells.
+</p>
+<p class="prose">
+Heat maps work because humans are very good at spotting color patterns. By translating numbers into a smooth gradient of color, we can see structure, clusters, and movement that would be invisible in a table of raw numbers.
+</p>
+
+<div class="diagram-wrap">
+  <div class="diagram-title">Color Encodes Intensity</div>
+  <div class="gradient-bar" style="background: linear-gradient(90deg, #0a0820, #1e3c96, #b400c8, #ff00aa, #ffb0e0, #fff0ff);">
+    <div class="gradient-marker" style="left: 10%;">0.1</div>
+    <div class="gradient-marker" style="left: 35%;">0.35</div>
+    <div class="gradient-marker" style="left: 60%;">0.6</div>
+    <div class="gradient-marker" style="left: 85%;">0.85</div>
+  </div>
+  <div class="gradient-labels">
+    <span>No activation (0.0)</span>
+    <span>Low</span>
+    <span>Medium</span>
+    <span>High</span>
+    <span>Peak (1.0)</span>
+  </div>
+  <div class="diagram-caption">Each cell in the heat map is colored according to its activation value. Cool tones mean quiet; hot tones mean the neuron is highly active or has just fired.</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 2 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s2"><span class="num">02</span>What Is a Neural Network?</h2>
+<div class="section-sub">// biological inspiration, simplified</div>
+
+<p class="prose">
+In your brain, billions of <strong>neurons</strong> communicate by sending electrical signals to their neighbors. When a neuron receives enough input, it "fires" — sending its own signal onward. This cascading pattern of firing is how you think, see, and move.
+</p>
+<p class="prose">
+<strong>Artificial neural networks</strong> (used in machine learning) are loosely inspired by this idea. They arrange mathematical functions into layers, pass data through them, and learn by adjusting connection strengths. But they're far more abstract than real neurons.
+</p>
+<p class="prose">
+This simulation sits somewhere in between: it borrows the <em>firing and spreading</em> concept from biology — not the learning or layers from machine learning. It's a visual toy, not a trained model. Think of it as an animated sketch of how neural activation might look if you could see it.
+</p>
+
+<div class="diagram-wrap">
+  <div class="diagram-title">Signal Propagation (Simplified)</div>
+  <canvas id="diagram-neuron-signal" class="diagram-canvas" width="500" height="160"></canvas>
+  <div class="diagram-caption">A neuron receives activation from neighbors, accumulates it, and when it crosses a threshold, fires — passing activation onward to its own neighbors.</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 3 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s3"><span class="num">03</span>How This Simulation Models Neural Firing</h2>
+<div class="section-sub">// grid-based simplification</div>
+
+<p class="prose">
+Instead of modeling individual neurons with complex connections, this simulation arranges them in a <strong>flat N&times;N grid</strong>. Each cell in the grid is one neuron. Each neuron can talk to its immediate neighbors (the cells directly adjacent to it).
+</p>
+<p class="prose">
+Why a grid? Two reasons: <strong>performance</strong> (a flat grid is very fast to iterate over and render) and <strong>visual clarity</strong> (the grid maps directly to pixels on screen, making the heat map trivial to draw). A 60&times;60 grid gives us 3,600 neurons updating dozens of times per second — enough to create rich, organic-looking patterns without slowing down your browser.
+</p>
+
+<div class="diagram-wrap">
+  <div class="diagram-title">N&times;N Grid with Active Cells</div>
+  <canvas id="diagram-grid" class="diagram-canvas" width="500" height="300"></canvas>
+  <div class="diagram-caption">A small section of the neuron grid. Most cells are dormant (dark). A cluster of active cells glows brightly, with their activation spreading outward to adjacent cells.</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 4 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s4"><span class="num">04</span>The Neuron: Anatomy of a Single Cell</h2>
+<div class="section-sub">// four properties that drive the simulation</div>
+
+<p class="prose">
+Every neuron in the grid has four properties. Together, they determine when the neuron fires, how it influences its neighbors, and how quickly it returns to rest.
+</p>
+
+<div class="anatomy-card">
+  <div class="card-title">Anatomy of a Simulated Neuron</div>
+  <div class="stat-grid">
+    <div class="stat-item">
+      <div class="stat-label">Activation</div>
+      <div class="stat-value">0.0 &ndash; 1.0</div>
+      <div class="stat-desc">The current "energy level" of this neuron. Starts at zero, accumulates from stimulation and neighbor firing, decays over time.</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Threshold</div>
+      <div class="stat-value">0.1 &ndash; 0.9</div>
+      <div class="stat-desc">The activation level a neuron must exceed to fire. Think of it as a trigger point — lower thresholds mean neurons fire more easily.</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Decay Rate</div>
+      <div class="stat-value">0.01 &ndash; 0.5</div>
+      <div class="stat-desc">How much activation is lost each tick if the neuron isn't re-stimulated. Prevents activation from building up infinitely.</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Refractory Period</div>
+      <div class="stat-value">0 &ndash; 20 ticks</div>
+      <div class="stat-desc">After firing, the neuron enters a cool-down period where it cannot fire again. Creates rhythm and prevents instant feedback loops.</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 5 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s5"><span class="num">05</span>Activation, Threshold & Propagation</h2>
+<div class="section-sub">// when neurons fire and how energy spreads</div>
+
+<p class="prose">
+Each tick of the simulation, every neuron checks: <em>is my activation above the threshold?</em> If yes — and if I'm not in a refractory cool-down — I <strong>fire</strong>. Firing means I take a fraction of my activation and add it to each of my neighbors.
+</p>
+<p class="prose">
+The <strong>propagation strength</strong> parameter controls what fraction of activation is passed on. If propagation is high, a single firing neuron creates a strong ripple outward. If low, the wave dies quickly.
+</p>
+<p class="prose">
+You can choose between <strong>4-directional</strong> neighbors (up, down, left, right) or <strong>8-directional</strong> (adds diagonals). Eight directions produce rounder, more organic wave patterns because activation can flow diagonally.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Pseudocode: Firing & Propagation</div>
+  <span class="kw">for each</span> neuron <span class="kw">in</span> grid:<br>
+  &nbsp;&nbsp;<span class="kw">if</span> neuron.activation &gt; <span class="fn">THRESHOLD</span> <span class="kw">and</span> neuron.refractory == <span class="num">0</span>:<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">-- this neuron fires!</span><br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">for each</span> neighbor <span class="kw">in</span> <span class="fn">get_neighbors</span>(neuron):<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">if</span> neighbor.refractory == <span class="num">0</span>:<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;neighbor.activation += neuron.activation * <span class="fn">PROPAGATION_STRENGTH</span> / <span class="fn">NEIGHBOR_COUNT</span><br>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;neighbor.activation = <span class="fn">min</span>(neighbor.activation, <span class="num">1.0</span>)<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="cm">-- enter cool-down</span><br>
+  &nbsp;&nbsp;&nbsp;&nbsp;neuron.refractory = <span class="fn">REFRACTORY_PERIOD</span><br>
+</div>
+<div class="code-note">
+  <strong>Why divide by neighbor count?</strong> This normalizes the energy output so that switching between 4-dir and 8-dir mode doesn't drastically change wave speed — the same total energy is distributed across more or fewer neighbors.
+</div>
+
+<div class="diagram-wrap">
+  <div class="diagram-title">Activation Propagation</div>
+  <canvas id="diagram-propagation" class="diagram-canvas" width="500" height="300"></canvas>
+  <div class="diagram-caption">A center cell fires (bright) and spreads activation to its 8 neighbors. The intensity of each neighbor's glow reflects the portion of energy received.</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 6 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s6"><span class="num">06</span>Decay & The Refractory Period</h2>
+<div class="section-sub">// how the grid returns to rest</div>
+
+<p class="prose">
+Without decay, activation would only ever increase — the grid would rapidly saturate and become a solid bright block. <strong>Decay</strong> subtracts a small amount of activation from every neuron every tick, ensuring that unstimulated neurons gradually go dark.
+</p>
+<p class="prose">
+The <strong>refractory period</strong> adds a second layer of regulation. After a neuron fires, it's temporarily "locked out" — it can't fire again for a set number of ticks, and incoming activation from neighbors is ignored during this window. This creates the distinctive wave-like patterns you see in the simulation: activation rolls forward but can't double back on itself immediately, much like a row of dominoes that need to be reset before they can fall again.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Pseudocode: Decay & Refractory Update</div>
+  <span class="kw">for each</span> neuron <span class="kw">in</span> grid:<br>
+  &nbsp;&nbsp;<span class="cm">-- fade activation</span><br>
+  &nbsp;&nbsp;neuron.activation = neuron.activation - <span class="fn">DECAY_RATE</span><br>
+  &nbsp;&nbsp;neuron.activation = <span class="fn">max</span>(neuron.activation, <span class="num">0.0</span>) <span class="cm">-- floor at zero</span><br>
+  <br>
+  &nbsp;&nbsp;<span class="cm">-- count down refractory timer</span><br>
+  &nbsp;&nbsp;<span class="kw">if</span> neuron.refractory &gt; <span class="num">0</span>:<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;neuron.refractory = neuron.refractory - <span class="num">1</span><br>
+</div>
+<div class="code-note">
+  <strong>Design choice:</strong> Decay is applied <em>after</em> propagation in each tick. This means freshly received activation survives for at least one tick before decaying, giving waves a chance to travel rather than dying immediately at their source.
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 7 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s7"><span class="num">07</span>How the Heat Map Is Rendered</h2>
+<div class="section-sub">// turning numbers into neon</div>
+
+<p class="prose">
+The rendering step translates each neuron's activation value (a number from 0.0 to 1.0) into a specific color using a <strong>color lookup table</strong> (LUT). The LUT is an array of 256 pre-computed RGB colors that span the chosen gradient. To color a neuron, we multiply its activation by 255, round to an integer, and look up the corresponding color.
+</p>
+<p class="prose">
+This is drawn on an HTML5 <strong>Canvas</strong> element. The simulation writes directly to an <em>ImageData</em> buffer — a flat array of pixel values — then paints it to the screen in a single call. This is much faster than drawing individual shapes for each cell, especially at 60&times;60 resolution or higher.
+</p>
+<p class="prose">
+On top of the base heat map, a second <strong>glow pass</strong> is drawn for cells with activation above 0.5. This pass uses the Canvas blur filter and additive blending to create the neon bloom effect that makes hot cells appear to radiate light.
+</p>
+
+<div class="diagram-wrap">
+  <div class="diagram-title">Activation &rarr; Color Mapping</div>
+  <div class="gradient-bar" style="background: linear-gradient(90deg, #0a0820, #141250, #1e3cB4, #7828c8, #ff00aa, #ff96da, #fff0ff); height: 36px;">
+    <div class="gradient-marker" style="left: 0%; top: -20px;">0.0<br><span style="font-size:8px;color:var(--text-dim)">dark navy</span></div>
+    <div class="gradient-marker" style="left: 25%; top: -20px;">0.25<br><span style="font-size:8px;color:var(--text-dim)">neon blue</span></div>
+    <div class="gradient-marker" style="left: 50%; top: -20px;">0.5<br><span style="font-size:8px;color:var(--text-dim)">purple</span></div>
+    <div class="gradient-marker" style="left: 75%; top: -20px;">0.75<br><span style="font-size:8px;color:var(--text-dim)">hot pink</span></div>
+    <div class="gradient-marker" style="left: 100%; top: -20px;">1.0<br><span style="font-size:8px;color:var(--text-dim)">white-pink</span></div>
+  </div>
+  <div style="height: 12px;"></div>
+  <div class="diagram-caption">The 256-entry color lookup table, visualized. Activation 0.0 maps to the left; 1.0 maps to the right. The glow pass is applied to all values above 0.5.</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 8 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s8"><span class="num">08</span>Walking Through One Full Tick</h2>
+<div class="section-sub">// step by step, start to finish</div>
+
+<p class="prose">
+Every time the simulation advances by one "tick," five distinct phases run in order. Understanding this sequence is the key to understanding everything the simulation does.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Pseudocode: One Complete Tick</div>
+  <span class="cm">-- Phase 1: Random stimulation</span><br>
+  <span class="kw">repeat</span> <span class="fn">SEED_RATE</span> times:<br>
+  &nbsp;&nbsp;pick a random neuron<br>
+  &nbsp;&nbsp;<span class="kw">if</span> it is not in refractory:<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;neuron.activation += <span class="fn">SEED_INTENSITY</span><br>
+  <br>
+  <span class="cm">-- Phase 2: Firing and propagation</span><br>
+  <span class="kw">for each</span> neuron <span class="kw">where</span> activation &gt; <span class="fn">THRESHOLD</span> <span class="kw">and</span> refractory == <span class="num">0</span>:<br>
+  &nbsp;&nbsp;spread activation to neighbors (see Section 5)<br>
+  &nbsp;&nbsp;set neuron.refractory = <span class="fn">REFRACTORY_PERIOD</span><br>
+  <br>
+  <span class="cm">-- Phase 3: Decay</span><br>
+  <span class="kw">for each</span> neuron:<br>
+  &nbsp;&nbsp;neuron.activation -= <span class="fn">DECAY_RATE</span><br>
+  &nbsp;&nbsp;clamp to [<span class="num">0.0</span>, <span class="num">1.0</span>]<br>
+  <br>
+  <span class="cm">-- Phase 4: Refractory countdown</span><br>
+  <span class="kw">for each</span> neuron <span class="kw">where</span> refractory &gt; <span class="num">0</span>:<br>
+  &nbsp;&nbsp;neuron.refractory -= <span class="num">1</span><br>
+  <br>
+  <span class="cm">-- Phase 5: Render</span><br>
+  <span class="kw">for each</span> neuron:<br>
+  &nbsp;&nbsp;color = <span class="fn">lookup_color</span>(neuron.activation)<br>
+  &nbsp;&nbsp;draw cell to canvas<br>
+  apply glow pass for bright cells<br>
+</div>
+<div class="code-note">
+  <strong>Order matters:</strong> Seeds are injected first so they can immediately participate in the propagation phase of the same tick. Decay comes after propagation so newly received activation isn't instantly erased.
+</div>
+
+<div class="figure">
+  <div class="figure-img">
+    <div class="figure-label">Screenshot: Canvas Mid-Simulation</div>
+    <div class="callout-badge" style="top: 25%; left: 30%;">1</div>
+    <div class="callout-badge" style="top: 55%; left: 60%;">2</div>
+    <div class="callout-badge" style="top: 40%; left: 45%;">3</div>
+    <div class="callout-badge" style="top: 70%; left: 25%;">4</div>
+  </div>
+  <div class="figure-caption">The heat map mid-simulation showing all three neuron states coexisting on the grid.</div>
+  <div class="callout-list">
+    <div class="cl-item"><div class="cl-num">1</div>Active cluster — recently fired neurons at peak brightness, with activation spreading outward</div>
+    <div class="cl-item"><div class="cl-num">2</div>Decaying trail — neurons that fired several ticks ago, fading from pink back toward dark purple</div>
+    <div class="cl-item"><div class="cl-num">3</div>Seed injection — a freshly stimulated neuron just received random activation, glowing blue</div>
+    <div class="cl-item"><div class="cl-num">4</div>Refractory zone — recently fired neurons in cool-down, appearing as a dark "shadow" behind the wave front</div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 9 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s9"><span class="num">09</span>What the Parameters Actually Do</h2>
+<div class="section-sub">// a reference for every slider</div>
+
+<p class="prose">
+The controls panel exposes every tunable parameter. Here's what each one does and what happens when you push it to extremes.
+</p>
+
+<table class="ref-table">
+  <thead>
+    <tr>
+      <th>Parameter</th>
+      <th>Controls</th>
+      <th>Low Extreme</th>
+      <th>High Extreme</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="param-name">Grid Size</td>
+      <td>Number of neurons per side (N&times;N)</td>
+      <td>20&times;20 = 400 neurons. Coarse, blocky patterns.</td>
+      <td>120&times;120 = 14,400 neurons. Fine detail, may reduce frame rate on slower hardware.</td>
+    </tr>
+    <tr>
+      <td class="param-name">Neighbor Mode</td>
+      <td>4-dir (cardinal) vs 8-dir (includes diagonals)</td>
+      <td>4-dir: diamond-shaped propagation patterns, sharper edges.</td>
+      <td>8-dir: circular wave fronts, smoother and more organic.</td>
+    </tr>
+    <tr>
+      <td class="param-name">Fire Threshold</td>
+      <td>Activation level required for a neuron to fire</td>
+      <td>0.1: nearly everything fires. Dense, chaotic activation.</td>
+      <td>0.9: only strongly stimulated neurons fire. Sparse, isolated bursts.</td>
+    </tr>
+    <tr>
+      <td class="param-name">Propagation Strength</td>
+      <td>Fraction of activation spread to neighbors on fire</td>
+      <td>0.0: neurons fire but don't affect neighbors. No waves.</td>
+      <td>1.0: strong cascading waves that can travel across the entire grid.</td>
+    </tr>
+    <tr>
+      <td class="param-name">Decay Rate</td>
+      <td>Activation lost per tick when not re-stimulated</td>
+      <td>0.01: very slow fade. Long glowing trails.</td>
+      <td>0.5: activation vanishes almost instantly. Only the brightest cells are visible.</td>
+    </tr>
+    <tr>
+      <td class="param-name">Refractory Period</td>
+      <td>Ticks of cool-down after firing</td>
+      <td>0: neurons can fire every tick. Can cause runaway feedback.</td>
+      <td>20: long cool-down. Wide "dead zones" trail behind waves.</td>
+    </tr>
+    <tr>
+      <td class="param-name">Seed Rate</td>
+      <td>Random neurons stimulated per tick</td>
+      <td>1: rare sparks, quiet grid with occasional waves.</td>
+      <td>50: constant barrage of new activation. Chaotic, noisy.</td>
+    </tr>
+    <tr>
+      <td class="param-name">Seed Intensity</td>
+      <td>How much activation each seed injects</td>
+      <td>0.1: weak seeds that may not reach the fire threshold alone.</td>
+      <td>1.0: seeds instantly max out a neuron, guaranteeing a fire.</td>
+    </tr>
+    <tr>
+      <td class="param-name">Glow Intensity</td>
+      <td>Strength of the neon bloom effect</td>
+      <td>0: no glow, flat colors.</td>
+      <td>1.0: intense bloom that bleeds across cells, dramatic but can obscure detail.</td>
+    </tr>
+    <tr>
+      <td class="param-name">Tick Speed</td>
+      <td>Simulation ticks per second</td>
+      <td>1 TPS: slow-motion, study each wave.</td>
+      <td>60 TPS: real-time fluid animation.</td>
+    </tr>
+  </tbody>
+</table>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 10 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s10"><span class="num">10</span>Real Neural Networks vs. This Simulation</h2>
+<div class="section-sub">// honest comparison</div>
+
+<p class="prose">
+This simulation captures the <em>spirit</em> of neural activation spreading through a network, but it deliberately omits most of the complexity that makes real neural networks powerful. Here's an honest breakdown.
+</p>
+
+<p class="prose"><strong>What this simulation gets right:</strong></p>
+<p class="prose">
+&bull; Neurons have activation levels that accumulate from inputs<br>
+&bull; Firing is threshold-based — a neuron must reach a certain level to activate<br>
+&bull; Refractory periods prevent instant re-firing (real neurons have this too)<br>
+&bull; Activation propagates to neighbors, creating cascading waves<br>
+&bull; Decay ensures the system doesn't saturate
+</p>
+
+<p class="prose"><strong>What this simulation does NOT model:</strong></p>
+<p class="prose">
+&bull; <strong>Weighted connections</strong> — in real networks, each connection has a different strength that changes during learning. Our grid uses uniform weights.<br>
+&bull; <strong>Backpropagation & training</strong> — the process by which neural networks learn. Our grid doesn't learn anything.<br>
+&bull; <strong>Layers & architecture</strong> — real networks have input layers, hidden layers, and output layers. Our grid is a single flat sheet.<br>
+&bull; <strong>Inhibitory neurons</strong> — real brains have neurons that suppress their neighbors. Our neurons only excite.<br>
+&bull; <strong>Synaptic plasticity</strong> — real connections strengthen or weaken with use. Ours are fixed.<br>
+&bull; <strong>Chemical neurotransmitters</strong> — real signaling involves complex chemistry, not simple number addition.
+</p>
+
+<p class="prose">
+Think of this as an <em>artistic impression</em> of how neural activation flows — useful for building intuition about propagation, thresholds, and refractory behavior, but not a model you'd use for actual neuroscience or machine learning.
+</p>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 11 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s11"><span class="num">11</span>Further Reading & Resources</h2>
+<div class="section-sub">// where to go next</div>
+
+<div class="link-cards">
+  <a class="link-card" href="https://en.wikipedia.org/wiki/Biological_neuron_model" target="_blank" rel="noopener">
+    <div class="lc-title">Biological Neuron Models</div>
+    <div class="lc-desc">Wikipedia overview of mathematical models of neurons, from the simple integrate-and-fire model to Hodgkin-Huxley.</div>
+  </a>
+  <a class="link-card" href="https://en.wikipedia.org/wiki/Hodgkin%E2%80%93Huxley_model" target="_blank" rel="noopener">
+    <div class="lc-title">Hodgkin-Huxley Model</div>
+    <div class="lc-desc">The Nobel Prize-winning mathematical model of how action potentials in neurons are initiated and propagated.</div>
+  </a>
+  <a class="link-card" href="https://www.3blue1brown.com/topics/neural-networks" target="_blank" rel="noopener">
+    <div class="lc-title">3Blue1Brown: Neural Networks</div>
+    <div class="lc-desc">Excellent video series explaining how artificial neural networks work, with beautiful visual animations.</div>
+  </a>
+  <a class="link-card" href="https://en.wikipedia.org/wiki/Heat_map" target="_blank" rel="noopener">
+    <div class="lc-title">Heat Map Visualization</div>
+    <div class="lc-desc">Overview of heat map techniques across domains: data science, biology, web analytics, and more.</div>
+  </a>
+  <a class="link-card" href="https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API" target="_blank" rel="noopener">
+    <div class="lc-title">MDN: Canvas API</div>
+    <div class="lc-desc">Reference documentation for the HTML5 Canvas API used to render the heat map in this project.</div>
+  </a>
+  <a class="link-card" href="https://neuralnetworksanddeeplearning.com/" target="_blank" rel="noopener">
+    <div class="lc-title">Neural Networks and Deep Learning</div>
+    <div class="lc-desc">Free online book by Michael Nielsen. Beginner-friendly deep dive into how neural networks actually learn.</div>
+  </a>
+</div>
+
+</main>
+</div>
+
+<script>
+// ── Scroll-spy for TOC ──
+const tocLinks = document.querySelectorAll('#toc a[data-section]');
+const sections = [];
+tocLinks.forEach(a => {
+  const el = document.getElementById(a.dataset.section);
+  if (el) sections.push({ el, link: a });
+});
+
+function updateTOC() {
+  let current = sections[0];
+  const scrollY = window.scrollY + 120;
+  for (const s of sections) {
+    if (s.el.offsetTop <= scrollY) current = s;
+  }
+  tocLinks.forEach(a => a.classList.remove('active'));
+  if (current) current.link.classList.add('active');
+}
+window.addEventListener('scroll', updateTOC);
+updateTOC();
+
+// Close mobile TOC on link click
+tocLinks.forEach(a => {
+  a.addEventListener('click', () => {
+    document.getElementById('toc').classList.remove('open');
+  });
+});
+
+// ── Diagram: Neuron Signal ──
+(function() {
+  const c = document.getElementById('diagram-neuron-signal');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+
+  function draw(t) {
+    ctx.clearRect(0, 0, W, H);
+
+    const nodes = [
+      { x: 80,  y: H/2, label: 'Neuron A', active: true },
+      { x: 250, y: H/2, label: 'Neuron B', active: Math.sin(t * 0.003) > 0.3 },
+      { x: 420, y: H/2, label: 'Neuron C', active: Math.sin(t * 0.003 - 1) > 0.3 },
+    ];
+
+    // Edges
+    for (let i = 0; i < nodes.length - 1; i++) {
+      const a = nodes[i], b = nodes[i + 1];
+      const signalActive = a.active;
+      ctx.strokeStyle = signalActive ? 'rgba(0,200,255,0.5)' : 'rgba(100,100,140,0.2)';
+      ctx.lineWidth = signalActive ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(a.x + 30, a.y);
+      ctx.lineTo(b.x - 30, b.y);
+      ctx.stroke();
+
+      if (signalActive) {
+        const prog = ((t * 0.003 + i) % 1);
+        const px = a.x + 30 + (b.x - a.x - 60) * prog;
+        const py = a.y;
+        ctx.fillStyle = 'rgba(0,255,200,0.9)';
+        ctx.shadowColor = 'rgba(0,255,200,0.5)';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    // Nodes
+    nodes.forEach(n => {
+      const glow = n.active ? 12 : 0;
+      if (glow) {
+        ctx.shadowColor = 'rgba(0,200,255,0.5)';
+        ctx.shadowBlur = glow;
+      }
+      ctx.fillStyle = n.active ? 'rgba(0,200,255,0.3)' : 'rgba(20,20,40,0.8)';
+      ctx.strokeStyle = n.active ? '#00c8ff' : 'rgba(100,100,140,0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, 28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = n.active ? '#fff' : 'rgba(200,210,230,0.6)';
+      ctx.font = '10px Share Tech Mono';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(n.label, n.x, n.y);
+    });
+
+    // Labels
+    ctx.fillStyle = 'rgba(150,160,180,0.5)';
+    ctx.font = '9px Share Tech Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('signal', 165, H/2 - 14);
+    ctx.fillText('signal', 335, H/2 - 14);
+
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+
+// ── Diagram: Grid ──
+(function() {
+  const c = document.getElementById('diagram-grid');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  const cols = 18, rows = 10;
+  const cellW = (W - 40) / cols;
+  const cellH = (H - 40) / rows;
+  const ox = 20, oy = 20;
+
+  // Fake activation data
+  const data = [];
+  for (let r = 0; r < rows; r++) {
+    data[r] = [];
+    for (let cc = 0; cc < cols; cc++) {
+      data[r][cc] = 0;
+    }
+  }
+
+  // Seed a cluster
+  function seedCluster(cr, cc, rad, intensity) {
+    for (let r = -rad; r <= rad; r++) {
+      for (let c = -rad; c <= rad; c++) {
+        const rr = cr + r, ccc = cc + c;
+        if (rr >= 0 && rr < rows && ccc >= 0 && ccc < cols) {
+          const d = Math.sqrt(r*r + c*c);
+          if (d <= rad) data[rr][ccc] = Math.max(data[rr][ccc], intensity * (1 - d/(rad+1)));
+        }
+      }
+    }
+  }
+
+  function draw(t) {
+    ctx.clearRect(0, 0, W, H);
+
+    // Reset and seed based on time
+    for (let r = 0; r < rows; r++)
+      for (let cc = 0; cc < cols; cc++)
+        data[r][cc] = 0;
+
+    const phase = (t * 0.001) % 6;
+    seedCluster(4, 5, 3, 0.9);
+    seedCluster(3, 12 + Math.sin(t * 0.002) * 2 | 0, 2, 0.7);
+    seedCluster(7, 8, 1.5, Math.sin(t * 0.004) * 0.3 + 0.5);
+
+    for (let r = 0; r < rows; r++) {
+      for (let cc = 0; cc < cols; cc++) {
+        const val = data[r][cc];
+        const x = ox + cc * cellW;
+        const y = oy + r * cellH;
+
+        // Color
+        let cr, cg, cb;
+        if (val < 0.3) {
+          cr = 10 + val * 40; cg = 8 + val * 30; cb = 30 + val * 200;
+        } else if (val < 0.6) {
+          const f = (val - 0.3) / 0.3;
+          cr = 22 + f * 200; cg = 17 + f * 20; cb = 90 + f * 110;
+        } else {
+          const f = (val - 0.6) / 0.4;
+          cr = 222 + f * 33; cg = 37 + f * 180; cb = 200 + f * 55;
+        }
+
+        if (val > 0.4) {
+          ctx.shadowColor = `rgba(${cr|0},${cg|0},${cb|0},0.5)`;
+          ctx.shadowBlur = val * 10;
+        }
+        ctx.fillStyle = `rgb(${cr|0},${cg|0},${cb|0})`;
+        ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(0,200,255,0.06)';
+    ctx.lineWidth = 0.5;
+    for (let r = 0; r <= rows; r++) {
+      ctx.beginPath(); ctx.moveTo(ox, oy + r * cellH); ctx.lineTo(ox + cols * cellW, oy + r * cellH); ctx.stroke();
+    }
+    for (let cc = 0; cc <= cols; cc++) {
+      ctx.beginPath(); ctx.moveTo(ox + cc * cellW, oy); ctx.lineTo(ox + cc * cellW, oy + rows * cellH); ctx.stroke();
+    }
+
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+
+// ── Diagram: Propagation ──
+(function() {
+  const c = document.getElementById('diagram-propagation');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  const cx = W / 2, cy = H / 2;
+  const cellSize = 48;
+
+  function draw(t) {
+    ctx.clearRect(0, 0, W, H);
+
+    const pulse = Math.sin(t * 0.004) * 0.5 + 0.5;
+    const spread = pulse;
+
+    // Draw 3x3 grid
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = cx + dx * (cellSize + 6);
+        const y = cy + dy * (cellSize + 6);
+        const isCenter = dx === 0 && dy === 0;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        let val;
+        if (isCenter) {
+          val = 0.95;
+        } else {
+          val = spread * 0.6 / dist;
+        }
+
+        let r, g, b;
+        if (val < 0.3) { r = 15; g = 12; b = 40 + val * 300; }
+        else if (val < 0.6) { r = 100 + val * 200; g = 20; b = 180; }
+        else { r = 255; g = val * 200; b = 200 + val * 55; }
+
+        if (val > 0.3) {
+          ctx.shadowColor = `rgba(${r|0},${g|0},${b|0},0.6)`;
+          ctx.shadowBlur = val * 16;
+        }
+
+        ctx.fillStyle = `rgb(${r|0},${g|0},${b|0})`;
+        ctx.strokeStyle = isCenter ? '#fff' : `rgba(0,200,255,${0.1 + val * 0.3})`;
+        ctx.lineWidth = isCenter ? 2 : 1;
+
+        // Draw hexagon
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = Math.PI / 3 * i - Math.PI / 6;
+          const hx = x + (cellSize / 2) * Math.cos(angle);
+          const hy = y + (cellSize / 2) * Math.sin(angle);
+          if (i === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Arrow from center
+        if (!isCenter && spread > 0.3) {
+          const ax = cx + dx * (cellSize * 0.4);
+          const ay = cy + dy * (cellSize * 0.4);
+          const bx = x - dx * (cellSize * 0.3);
+          const by = y - dy * (cellSize * 0.3);
+          ctx.strokeStyle = `rgba(0,200,255,${spread * 0.4})`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+
+          // Arrowhead
+          const angle = Math.atan2(by - ay, bx - ax);
+          ctx.fillStyle = `rgba(0,200,255,${spread * 0.4})`;
+          ctx.beginPath();
+          ctx.moveTo(bx, by);
+          ctx.lineTo(bx - 8 * Math.cos(angle - 0.4), by - 8 * Math.sin(angle - 0.4));
+          ctx.lineTo(bx - 8 * Math.cos(angle + 0.4), by - 8 * Math.sin(angle + 0.4));
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }
+
+    // Label
+    ctx.fillStyle = 'rgba(200,210,230,0.5)';
+    ctx.font = '9px Share Tech Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('FIRING', cx, cy + 4);
+
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
