@@ -552,10 +552,13 @@ body.slideshow-mode .slide.active {
   animation: slide-fade 0.25s ease;
 }
 body.slideshow-mode .slide.active.scrollable {
-  overflow-y: auto;
+  display: block !important;
+  overflow-y: auto !important;
+  overflow-x: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--accent) transparent;
 }
+body.slideshow-mode .slide.active.scrollable > * { flex-shrink: 0; }
 body.slideshow-mode .slide.active.scrollable::-webkit-scrollbar { width: 8px; }
 body.slideshow-mode .slide.active.scrollable::-webkit-scrollbar-thumb {
   background: rgba(0,200,255,0.4);
