@@ -367,6 +367,88 @@ body {
   font-size: 13px; line-height: 1.8; color: #c0c8e0;
 }
 .caveat strong { color: var(--amber); }
+
+/* ── Slideshow mode ── */
+#slideshow-btn {
+  margin-left: auto;
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--accent);
+  background: rgba(0,200,255,0.08);
+  border: 1px solid var(--accent);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+#slideshow-btn:hover { background: rgba(0,200,255,0.2); box-shadow: 0 0 12px rgba(0,200,255,0.25); }
+
+#slideshow-hud {
+  display: none;
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 500;
+  gap: 10px;
+  align-items: center;
+  background: rgba(0,0,0,0.78);
+  border: 1px solid var(--panel-border);
+  padding: 8px 14px;
+  border-radius: 30px;
+  backdrop-filter: blur(10px);
+}
+body.slideshow-mode #slideshow-hud { display: flex; }
+#slideshow-hud button {
+  background: rgba(0,200,255,0.1);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+#slideshow-hud button:hover { background: rgba(0,200,255,0.22); }
+#ss-counter { font-size: 11px; color: var(--text); letter-spacing: 1px; padding: 0 8px; min-width: 70px; text-align: center; }
+
+body.slideshow-mode { overflow: hidden; }
+body.slideshow-mode #nav,
+body.slideshow-mode #toc,
+body.slideshow-mode #toc-toggle { display: none !important; }
+body.slideshow-mode #page-wrap { display: block; }
+body.slideshow-mode #content { max-width: none; padding: 0; margin: 0; }
+body.slideshow-mode .slide { display: none; }
+body.slideshow-mode .slide.active {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw;
+  height: 100vh;
+  padding: 44px 72px 80px;
+  overflow: hidden;
+  background: var(--bg);
+  animation: slide-fade 0.25s ease;
+}
+body.slideshow-mode .slide.active .section-heading { font-size: 30px; margin: 0 0 4px 0; padding-top: 0; }
+body.slideshow-mode .slide.active .section-sub { margin-bottom: 14px; }
+body.slideshow-mode .slide.active .prose { font-size: 15px; margin-bottom: 12px; line-height: 1.65; }
+body.slideshow-mode .slide.active .diagram-wrap,
+body.slideshow-mode .slide.active .anatomy-card,
+body.slideshow-mode .slide.active .figure,
+body.slideshow-mode .slide.active .code-block,
+body.slideshow-mode .slide.active .caveat { margin: 10px 0; }
+body.slideshow-mode .slide.active .code-block { font-size: 12px; padding: 14px; }
+body.slideshow-mode .slide.active .code-note { font-size: 10px; }
+body.slideshow-mode .slide.active .ref-table { font-size: 11px; }
+body.slideshow-mode .slide.active .ref-table th,
+body.slideshow-mode .slide.active .ref-table td { padding: 6px 10px; }
+body.slideshow-mode .slide.active .link-cards { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+body.slideshow-mode .slide.active .link-card { padding: 10px; }
+@keyframes slide-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
 <body>
@@ -377,7 +459,15 @@ body {
   <a href="aws-attack-surface.html">Attack Surface</a>
   <a href="tutorial-neural.html">How It Works: Neural</a>
   <a href="tutorial-aws.html" class="active">How It Works: AWS</a>
+  <button id="slideshow-btn" title="Present as slideshow">&#9654; Slideshow</button>
 </nav>
+
+<div id="slideshow-hud">
+  <button id="ss-prev" title="Previous (&larr;)">&#9664; Prev</button>
+  <span id="ss-counter">1 / 1</span>
+  <button id="ss-next" title="Next (&rarr; or Space)">Next &#9654;</button>
+  <button id="ss-exit" title="Exit (Esc)">Exit</button>
+</div>
 
 <button id="toc-toggle" onclick="document.getElementById('toc').classList.toggle('open')">&#9776;</button>
 
@@ -397,6 +487,10 @@ body {
   <a href="#s10" data-section="s10">10. What the Parameters Actually Do</a>
   <a href="#s11" data-section="s11">11. Real-World Parallels & Limitations</a>
   <a href="#s12" data-section="s12">12. Further Reading & Resources</a>
+  <a href="#s13" data-section="s13">13. Inside the Code — Graph Model</a>
+  <a href="#s14" data-section="s14">14. Procedural Environment Generation</a>
+  <a href="#s15" data-section="s15">15. Threat AI — Pathing Logic</a>
+  <a href="#s16" data-section="s16">16. The Rendering Pipeline</a>
 </aside>
 
 <main id="content">
@@ -1106,6 +1200,124 @@ Let's trace a realistic attack path through the simulation. This is a common pat
   </a>
 </div>
 
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 13 — Program internals -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s13"><span class="num">13</span>Inside the Code &mdash; Graph Model</h2>
+<div class="section-sub">// how the simulation represents an AWS environment</div>
+
+<p class="prose">
+The environment is a <strong>directed graph</strong>: two flat arrays hold everything. <em>nodes[]</em> stores each service's position, type, and three risk attributes (severity, exposure, asset value); <em>edges[]</em> stores source/target index pairs. An <strong>adjacency map</strong> is built once at generation so neighbor lookups are <em>O(1)</em> instead of scanning every edge each tick.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Core Data Structures</div>
+  <span class="kw">const</span> nodes = [];  <span class="cm">-- { id, x, y, type, severity, exposure, value, compromised, score }</span><br>
+  <span class="kw">const</span> edges = [];  <span class="cm">-- { from, to }</span><br>
+  <span class="kw">const</span> adj   = <span class="kw">new</span> <span class="fn">Map</span>(); <span class="cm">-- id -&gt; [neighborId, ...]</span><br>
+  <br>
+  <span class="kw">function</span> <span class="fn">buildAdjacency</span>() {<br>
+  &nbsp;&nbsp;adj.<span class="fn">clear</span>();<br>
+  &nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">const</span> e <span class="kw">of</span> edges) {<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;(adj.<span class="fn">get</span>(e.from) || adj.<span class="fn">set</span>(e.from, []).<span class="fn">get</span>(e.from)).<span class="fn">push</span>(e.to);<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;(adj.<span class="fn">get</span>(e.to)   || adj.<span class="fn">set</span>(e.to,   []).<span class="fn">get</span>(e.to)).<span class="fn">push</span>(e.from);<br>
+  &nbsp;&nbsp;}<br>
+  }<br>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 14 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s14"><span class="num">14</span>Procedural Environment Generation</h2>
+<div class="section-sub">// how fake-but-realistic AWS topologies are built</div>
+
+<p class="prose">
+When the simulation starts (or you bump the asset-count slider), the environment is rebuilt from scratch. <strong>Step 1:</strong> spawn N nodes at random positions inside the canvas. <strong>Step 2:</strong> assign each a service type drawn from a weighted table (more EC2 instances than KMS keys, reflecting real deployments). <strong>Step 3:</strong> connect nodes whose distance is under a threshold scaled by the <em>edge density</em> slider. <strong>Step 4:</strong> seed each node's risk attributes from that service type's profile, with small random jitter so no two generations look the same.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Generation Pipeline</div>
+  <span class="kw">function</span> <span class="fn">generate</span>(N, density) {<br>
+  &nbsp;&nbsp;nodes.length = <span class="num">0</span>; edges.length = <span class="num">0</span>;<br>
+  &nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i &lt; N; i++) {<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">const</span> type = <span class="fn">weightedPick</span>(SERVICE_WEIGHTS);<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;nodes.<span class="fn">push</span>({ id: i, x: <span class="fn">rand</span>(W), y: <span class="fn">rand</span>(H),<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;type, ...<span class="fn">jitter</span>(PROFILES[type]), compromised: <span class="kw">false</span> });<br>
+  &nbsp;&nbsp;}<br>
+  &nbsp;&nbsp;<span class="kw">const</span> reach = <span class="num">120</span> * density;<br>
+  &nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">let</span> a = <span class="num">0</span>; a &lt; N; a++)<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">let</span> b = a+<span class="num">1</span>; b &lt; N; b++)<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">if</span> (<span class="fn">dist</span>(nodes[a], nodes[b]) &lt; reach)<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;edges.<span class="fn">push</span>({ from: a, to: b });<br>
+  &nbsp;&nbsp;<span class="fn">buildAdjacency</span>();<br>
+  }<br>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 15 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s15"><span class="num">15</span>Threat AI &mdash; Pathing Logic</h2>
+<div class="section-sub">// how a threat decides where to move next</div>
+
+<p class="prose">
+Threats don't wander randomly. Each tick, a threat looks at its current node's neighbors, scores each one, and picks a target weighted toward <strong>high asset value</strong> and <strong>already-weak defenses</strong>. The <em>aggression</em> slider sets the probability the threat actually jumps this tick; otherwise it lingers and strengthens its foothold. The <em>patch effectiveness</em> slider reduces compromise probability on each attempt, modeling defenders catching up.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Per-Tick Threat Update</div>
+  <span class="kw">for</span> (<span class="kw">const</span> threat <span class="kw">of</span> threats) {<br>
+  &nbsp;&nbsp;<span class="kw">if</span> (<span class="fn">Math</span>.<span class="fn">random</span>() &gt; aggression) <span class="kw">continue</span>; <span class="cm">-- wait this tick</span><br>
+  &nbsp;&nbsp;<span class="kw">const</span> here = nodes[threat.at];<br>
+  &nbsp;&nbsp;<span class="kw">const</span> candidates = adj.<span class="fn">get</span>(here.id)<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;.<span class="fn">map</span>(id =&gt; nodes[id])<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;.<span class="fn">filter</span>(n =&gt; !n.compromised);<br>
+  &nbsp;&nbsp;<span class="kw">if</span> (candidates.length === <span class="num">0</span>) <span class="kw">continue</span>;<br>
+  &nbsp;&nbsp;<span class="kw">const</span> target = <span class="fn">weightedPick</span>(candidates,<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;n =&gt; n.value * <span class="num">0.6</span> + n.exposure * <span class="num">0.4</span>);<br>
+  &nbsp;&nbsp;<span class="kw">if</span> (<span class="fn">Math</span>.<span class="fn">random</span>() &lt; (<span class="num">1</span> - patchEffect)) {<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;target.compromised = <span class="kw">true</span>; threat.at = target.id;<br>
+  &nbsp;&nbsp;}<br>
+  }<br>
+</div>
+<div class="code-note">
+  <strong>Why value &times; 0.6 + exposure &times; 0.4?</strong> A real attacker balances <em>what they want</em> (high-value targets) against <em>what they can reach</em> (high-exposure neighbors). Weighting produces pathing that looks intelligent without a full search tree.
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 16 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s16"><span class="num">16</span>The Rendering Pipeline</h2>
+<div class="section-sub">// drawing nodes, edges, heat, and animation</div>
+
+<p class="prose">
+Each frame is painted in three layers on a single 2D Canvas. <strong>Layer 1:</strong> edges as thin lines, darker when dormant and brighter when carrying an active attack. <strong>Layer 2:</strong> nodes as filled circles; fill color comes from a 256-entry risk-score LUT (same trick as the neural heat map). <strong>Layer 3:</strong> animated pulses &mdash; small dots that travel along compromised edges, their position a simple <em>lerp</em> from source to target driven by a per-pulse progress value.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Frame Render</div>
+  <span class="kw">function</span> <span class="fn">render</span>() {<br>
+  &nbsp;&nbsp;ctx.<span class="fn">clearRect</span>(<span class="num">0</span>, <span class="num">0</span>, W, H);<br>
+  &nbsp;&nbsp;<span class="cm">-- 1. edges</span><br>
+  &nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">const</span> e <span class="kw">of</span> edges) <span class="fn">drawEdge</span>(nodes[e.from], nodes[e.to]);<br>
+  &nbsp;&nbsp;<span class="cm">-- 2. nodes</span><br>
+  &nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">const</span> n <span class="kw">of</span> nodes) {<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">const</span> color = RISK_LUT[n.score * <span class="num">255</span> | <span class="num">0</span>];<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">drawNode</span>(n, color);<br>
+  &nbsp;&nbsp;}<br>
+  &nbsp;&nbsp;<span class="cm">-- 3. attack pulses</span><br>
+  &nbsp;&nbsp;<span class="kw">for</span> (<span class="kw">const</span> p <span class="kw">of</span> pulses) {<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">const</span> x = <span class="fn">lerp</span>(p.a.x, p.b.x, p.t);<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="kw">const</span> y = <span class="fn">lerp</span>(p.a.y, p.b.y, p.t);<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">drawPulse</span>(x, y);<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;p.t += <span class="num">0.03</span>;<br>
+  &nbsp;&nbsp;}<br>
+  }<br>
+</div>
+
 </main>
 </div>
 
@@ -1402,6 +1614,58 @@ tocLinks.forEach(a => {
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
+})();
+
+// ── Slideshow Mode ──
+(function() {
+  const content = document.getElementById('content');
+  if (!content) return;
+
+  const slides = [];
+  const kids = Array.from(content.children);
+  let current = null;
+  kids.forEach(el => {
+    if (el.classList && el.classList.contains('section-heading')) {
+      current = document.createElement('div');
+      current.className = 'slide';
+      slides.push(current);
+    }
+    if (current) current.appendChild(el);
+  });
+  slides.forEach(s => content.appendChild(s));
+
+  const btn = document.getElementById('slideshow-btn');
+  const exit = document.getElementById('ss-exit');
+  const prev = document.getElementById('ss-prev');
+  const next = document.getElementById('ss-next');
+  const counter = document.getElementById('ss-counter');
+  let idx = 0;
+
+  function show(i) {
+    idx = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === idx));
+    if (counter) counter.textContent = (idx + 1) + ' / ' + slides.length;
+  }
+  function enter() {
+    document.body.classList.add('slideshow-mode');
+    show(idx);
+  }
+  function leave() {
+    document.body.classList.remove('slideshow-mode');
+    slides.forEach(s => s.classList.remove('active'));
+  }
+
+  if (btn) btn.addEventListener('click', enter);
+  if (exit) exit.addEventListener('click', leave);
+  if (prev) prev.addEventListener('click', () => show(idx - 1));
+  if (next) next.addEventListener('click', () => show(idx + 1));
+
+  document.addEventListener('keydown', (e) => {
+    if (!document.body.classList.contains('slideshow-mode')) return;
+    if (e.key === 'Escape') { leave(); }
+    else if (e.key === 'ArrowRight' || e.key === ' ') { show(idx + 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { show(idx - 1); e.preventDefault(); }
+  });
 })();
 </script>
 </body>

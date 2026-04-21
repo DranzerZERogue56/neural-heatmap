@@ -485,6 +485,87 @@ body {
   display: block;
   margin: 0 auto;
 }
+
+/* ── Slideshow mode ── */
+#slideshow-btn {
+  margin-left: auto;
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--accent);
+  background: rgba(0,200,255,0.08);
+  border: 1px solid var(--accent);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+#slideshow-btn:hover { background: rgba(0,200,255,0.2); box-shadow: 0 0 12px rgba(0,200,255,0.25); }
+
+#slideshow-hud {
+  display: none;
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 500;
+  gap: 10px;
+  align-items: center;
+  background: rgba(0,0,0,0.78);
+  border: 1px solid var(--panel-border);
+  padding: 8px 14px;
+  border-radius: 30px;
+  backdrop-filter: blur(10px);
+}
+body.slideshow-mode #slideshow-hud { display: flex; }
+#slideshow-hud button {
+  background: rgba(0,200,255,0.1);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+#slideshow-hud button:hover { background: rgba(0,200,255,0.22); }
+#ss-counter { font-size: 11px; color: var(--text); letter-spacing: 1px; padding: 0 8px; min-width: 70px; text-align: center; }
+
+body.slideshow-mode { overflow: hidden; }
+body.slideshow-mode #nav,
+body.slideshow-mode #toc,
+body.slideshow-mode #toc-toggle { display: none !important; }
+body.slideshow-mode #page-wrap { display: block; }
+body.slideshow-mode #content { max-width: none; padding: 0; margin: 0; }
+body.slideshow-mode .slide { display: none; }
+body.slideshow-mode .slide.active {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw;
+  height: 100vh;
+  padding: 44px 72px 80px;
+  overflow: hidden;
+  background: var(--bg);
+  animation: slide-fade 0.25s ease;
+}
+body.slideshow-mode .slide.active .section-heading { font-size: 30px; margin: 0 0 4px 0; padding-top: 0; }
+body.slideshow-mode .slide.active .section-sub { margin-bottom: 14px; }
+body.slideshow-mode .slide.active .prose { font-size: 15px; margin-bottom: 12px; line-height: 1.65; }
+body.slideshow-mode .slide.active .diagram-wrap,
+body.slideshow-mode .slide.active .anatomy-card,
+body.slideshow-mode .slide.active .figure,
+body.slideshow-mode .slide.active .code-block { margin: 10px 0; }
+body.slideshow-mode .slide.active .code-block { font-size: 12px; padding: 14px; }
+body.slideshow-mode .slide.active .code-note { font-size: 10px; }
+body.slideshow-mode .slide.active .ref-table { font-size: 11px; }
+body.slideshow-mode .slide.active .ref-table th,
+body.slideshow-mode .slide.active .ref-table td { padding: 6px 10px; }
+body.slideshow-mode .slide.active .link-cards { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+body.slideshow-mode .slide.active .link-card { padding: 10px; }
+@keyframes slide-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
 <body>
@@ -495,7 +576,15 @@ body {
   <a href="aws-attack-surface.html">Attack Surface</a>
   <a href="tutorial-neural.html" class="active">How It Works: Neural</a>
   <a href="tutorial-aws.html">How It Works: AWS</a>
+  <button id="slideshow-btn" title="Present as slideshow">&#9654; Slideshow</button>
 </nav>
+
+<div id="slideshow-hud">
+  <button id="ss-prev" title="Previous (&larr;)">&#9664; Prev</button>
+  <span id="ss-counter">1 / 1</span>
+  <button id="ss-next" title="Next (&rarr; or Space)">Next &#9654;</button>
+  <button id="ss-exit" title="Exit (Esc)">Exit</button>
+</div>
 
 <button id="toc-toggle" onclick="document.getElementById('toc').classList.toggle('open')">&#9776;</button>
 
@@ -514,6 +603,10 @@ body {
   <a href="#s9" data-section="s9">9. What the Parameters Actually Do</a>
   <a href="#s10" data-section="s10">10. Real Neural Networks vs. This Simulation</a>
   <a href="#s11" data-section="s11">11. Further Reading & Resources</a>
+  <a href="#s12" data-section="s12">12. Inside the Code — Grid Storage</a>
+  <a href="#s13" data-section="s13">13. The Color Lookup Table</a>
+  <a href="#s14" data-section="s14">14. Canvas Rendering Pipeline</a>
+  <a href="#s15" data-section="s15">15. The Main Animation Loop</a>
 </aside>
 
 <main id="content">
@@ -939,6 +1032,109 @@ Think of this as an <em>artistic impression</em> of how neural activation flows 
   </a>
 </div>
 
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 12 — Program internals -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s12"><span class="num">12</span>Inside the Code &mdash; Grid Storage</h2>
+<div class="section-sub">// how the program represents thousands of neurons efficiently</div>
+
+<p class="prose">
+All <strong>N&times;N</strong> neurons are stored in flat <em>typed arrays</em> rather than nested objects. A <strong>Float32Array</strong> of length N&sup2; holds activation values; a parallel <strong>Int8Array</strong> tracks each neuron's refractory countdown. Index math replaces per-neuron objects &mdash; no allocation churn, no garbage-collection pauses, and the whole grid sits in contiguous memory the CPU can stream through cache.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Grid Allocation & Indexing</div>
+  <span class="kw">const</span> activation = <span class="kw">new</span> <span class="fn">Float32Array</span>(N * N);<br>
+  <span class="kw">const</span> refractory = <span class="kw">new</span> <span class="fn">Int8Array</span>(N * N);<br>
+  <span class="kw">const</span> <span class="fn">idx</span> = (r, c) =&gt; r * N + c;<br>
+  <br>
+  <span class="cm">-- read / write a cell</span><br>
+  <span class="kw">let</span> v = activation[<span class="fn">idx</span>(r, c)];<br>
+  activation[<span class="fn">idx</span>(r, c)] = <span class="fn">Math</span>.<span class="fn">min</span>(v + delta, <span class="num">1.0</span>);<br>
+</div>
+<div class="code-note">
+  <strong>Why typed arrays?</strong> Plain JS arrays store values as tagged 64-bit references. A <span class="fn">Float32Array</span> is raw contiguous memory &mdash; 4&times; smaller per cell, no pointer chasing, and friendly to SIMD-style browser optimizations.
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 13 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s13"><span class="num">13</span>The Color Lookup Table</h2>
+<div class="section-sub">// pre-computed colors, zero per-frame math</div>
+
+<p class="prose">
+Mapping activation &rarr; color every frame for thousands of cells would be expensive. Instead, a <strong>256-entry lookup table (LUT)</strong> is built <em>once</em> at startup by interpolating between the chosen gradient's color stops. Each tick, a neuron's color is one array index away: <em>LUT[activation * 255 | 0]</em>. No multiplications, no branches, no trig in the hot path. Switching color schemes rebuilds the LUT; the render code is untouched.
+</p>
+
+<div class="code-block">
+  <div class="code-title">LUT Construction</div>
+  <span class="kw">const</span> LUT = <span class="kw">new</span> <span class="fn">Uint8ClampedArray</span>(<span class="num">256</span> * <span class="num">4</span>); <span class="cm">-- RGBA &times; 256</span><br>
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i &lt; <span class="num">256</span>; i++) {<br>
+  &nbsp;&nbsp;<span class="kw">const</span> t = i / <span class="num">255</span>;<br>
+  &nbsp;&nbsp;<span class="kw">const</span> [r, g, b] = <span class="fn">interpolateStops</span>(gradient, t);<br>
+  &nbsp;&nbsp;LUT[i*<span class="num">4</span>  ] = r;<br>
+  &nbsp;&nbsp;LUT[i*<span class="num">4</span>+<span class="num">1</span>] = g;<br>
+  &nbsp;&nbsp;LUT[i*<span class="num">4</span>+<span class="num">2</span>] = b;<br>
+  &nbsp;&nbsp;LUT[i*<span class="num">4</span>+<span class="num">3</span>] = <span class="num">255</span>;<br>
+  }<br>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 14 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s14"><span class="num">14</span>Canvas Rendering Pipeline</h2>
+<div class="section-sub">// writing thousands of cells in one call</div>
+
+<p class="prose">
+The heat map is painted by writing pixels directly into an <strong>ImageData</strong> buffer &mdash; a flat <em>Uint8ClampedArray</em> of RGBA bytes &mdash; and committing the whole thing to the canvas in a <em>single</em> <em>putImageData()</em> call. One round-trip, no per-cell <em>fillRect</em> overhead. The glow pass is a second render through <em>ctx.filter = 'blur(Npx)'</em> with additive blending, which the browser GPU-accelerates.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Paint Step</div>
+  <span class="kw">const</span> img = ctx.<span class="fn">createImageData</span>(W, H);<br>
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i &lt; N*N; i++) {<br>
+  &nbsp;&nbsp;<span class="kw">const</span> v = activation[i] * <span class="num">255</span> | <span class="num">0</span>;<br>
+  &nbsp;&nbsp;img.data.<span class="fn">set</span>(LUT.<span class="fn">subarray</span>(v*<span class="num">4</span>, v*<span class="num">4</span>+<span class="num">4</span>), <span class="fn">pixelOffset</span>(i));<br>
+  }<br>
+  ctx.<span class="fn">putImageData</span>(img, <span class="num">0</span>, <span class="num">0</span>);<br>
+  <br>
+  <span class="cm">-- glow pass</span><br>
+  ctx.filter = <span class="str">'blur(8px)'</span>;<br>
+  ctx.globalCompositeOperation = <span class="str">'lighter'</span>;<br>
+  ctx.<span class="fn">drawImage</span>(canvas, <span class="num">0</span>, <span class="num">0</span>);<br>
+</div>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 15 -->
+<!-- ═══════════════════════════════════════════ -->
+<h2 class="section-heading" id="s15"><span class="num">15</span>The Main Animation Loop</h2>
+<div class="section-sub">// decoupling simulation speed from frame rate</div>
+
+<p class="prose">
+The browser's <strong>requestAnimationFrame</strong> drives rendering at ~60 fps, but the simulation's tick rate is independent and user-controlled (1&ndash;60 TPS). A <em>time accumulator</em> bridges the two: each frame adds elapsed milliseconds; whenever the accumulator exceeds the tick interval, one full simulation step runs and the accumulator decrements. Slowing tick speed doesn't choke the render loop &mdash; the canvas repaints smoothly even while physics crawls.
+</p>
+
+<div class="code-block">
+  <div class="code-title">Main Loop</div>
+  <span class="kw">let</span> last = <span class="fn">performance</span>.<span class="fn">now</span>(), acc = <span class="num">0</span>;<br>
+  <span class="kw">function</span> <span class="fn">frame</span>(now) {<br>
+  &nbsp;&nbsp;acc += now - last;<br>
+  &nbsp;&nbsp;last = now;<br>
+  &nbsp;&nbsp;<span class="kw">const</span> interval = <span class="num">1000</span> / tickSpeed;<br>
+  &nbsp;&nbsp;<span class="kw">while</span> (acc &gt;= interval) {<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">runOneTick</span>(); <span class="cm">-- phases 1&ndash;4</span><br>
+  &nbsp;&nbsp;&nbsp;&nbsp;acc -= interval;<br>
+  &nbsp;&nbsp;}<br>
+  &nbsp;&nbsp;<span class="fn">render</span>(); <span class="cm">-- phase 5</span><br>
+  &nbsp;&nbsp;<span class="fn">requestAnimationFrame</span>(<span class="fn">frame</span>);<br>
+  }<br>
+  <span class="fn">requestAnimationFrame</span>(<span class="fn">frame</span>);<br>
+</div>
+
 </main>
 </div>
 
@@ -1227,6 +1423,59 @@ tocLinks.forEach(a => {
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
+})();
+
+// ── Slideshow Mode ──
+(function() {
+  const content = document.getElementById('content');
+  if (!content) return;
+
+  // Wrap each section-heading + following siblings (until next heading) into a .slide div.
+  const slides = [];
+  const kids = Array.from(content.children);
+  let current = null;
+  kids.forEach(el => {
+    if (el.classList && el.classList.contains('section-heading')) {
+      current = document.createElement('div');
+      current.className = 'slide';
+      slides.push(current);
+    }
+    if (current) current.appendChild(el);
+  });
+  slides.forEach(s => content.appendChild(s));
+
+  const btn = document.getElementById('slideshow-btn');
+  const exit = document.getElementById('ss-exit');
+  const prev = document.getElementById('ss-prev');
+  const next = document.getElementById('ss-next');
+  const counter = document.getElementById('ss-counter');
+  let idx = 0;
+
+  function show(i) {
+    idx = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === idx));
+    if (counter) counter.textContent = (idx + 1) + ' / ' + slides.length;
+  }
+  function enter() {
+    document.body.classList.add('slideshow-mode');
+    show(idx);
+  }
+  function leave() {
+    document.body.classList.remove('slideshow-mode');
+    slides.forEach(s => s.classList.remove('active'));
+  }
+
+  if (btn) btn.addEventListener('click', enter);
+  if (exit) exit.addEventListener('click', leave);
+  if (prev) prev.addEventListener('click', () => show(idx - 1));
+  if (next) next.addEventListener('click', () => show(idx + 1));
+
+  document.addEventListener('keydown', (e) => {
+    if (!document.body.classList.contains('slideshow-mode')) return;
+    if (e.key === 'Escape') { leave(); }
+    else if (e.key === 'ArrowRight' || e.key === ' ') { show(idx + 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { show(idx - 1); e.preventDefault(); }
+  });
 })();
 </script>
 </body>
