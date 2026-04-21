@@ -1283,10 +1283,13 @@ tocLinks.forEach(a => {
       for (let cc = 0; cc < cols; cc++)
         data[r][cc] = 0;
 
-    const phase = (t * 0.001) % 6;
-    seedCluster(4, 5, 3, 0.9);
-    seedCluster(3, 12 + Math.sin(t * 0.002) * 2 | 0, 2, 0.7);
-    seedCluster(7, 8, 1.5, Math.sin(t * 0.004) * 0.3 + 0.5);
+    seedCluster(4, 5, 3, 1.0);
+    seedCluster(3, 12 + Math.sin(t * 0.002) * 2 | 0, 2, 1.0);
+    seedCluster(7, 8, 1.5, Math.sin(t * 0.004) * 0.25 + 0.75);
+
+    // Bright gutter behind cells — gaps between filled squares reveal it as contrasting grid lines
+    ctx.fillStyle = 'rgba(90, 170, 240, 0.65)';
+    ctx.fillRect(ox, oy, cols * cellW, rows * cellH);
 
     for (let r = 0; r < rows; r++) {
       for (let cc = 0; cc < cols; cc++) {
@@ -1307,23 +1310,13 @@ tocLinks.forEach(a => {
         }
 
         if (val > 0.4) {
-          ctx.shadowColor = `rgba(${cr|0},${cg|0},${cb|0},0.5)`;
-          ctx.shadowBlur = val * 10;
+          ctx.shadowColor = `rgba(${cr|0},${cg|0},${cb|0},0.6)`;
+          ctx.shadowBlur = val * 12;
         }
         ctx.fillStyle = `rgb(${cr|0},${cg|0},${cb|0})`;
-        ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
+        ctx.fillRect(x + 2, y + 2, cellW - 4, cellH - 4);
         ctx.shadowBlur = 0;
       }
-    }
-
-    // Grid lines
-    ctx.strokeStyle = 'rgba(0,200,255,0.06)';
-    ctx.lineWidth = 0.5;
-    for (let r = 0; r <= rows; r++) {
-      ctx.beginPath(); ctx.moveTo(ox, oy + r * cellH); ctx.lineTo(ox + cols * cellW, oy + r * cellH); ctx.stroke();
-    }
-    for (let cc = 0; cc <= cols; cc++) {
-      ctx.beginPath(); ctx.moveTo(ox + cc * cellW, oy); ctx.lineTo(ox + cc * cellW, oy + rows * cellH); ctx.stroke();
     }
 
     requestAnimationFrame(draw);
