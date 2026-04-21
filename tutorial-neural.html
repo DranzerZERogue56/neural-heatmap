@@ -1298,17 +1298,45 @@ tocLinks.forEach(a => {
     seedCluster(3, 12 + Math.sin(t * 0.002) * 2 | 0, 2, 1.0);
     seedCluster(7, 8, 1.5, Math.sin(t * 0.004) * 0.25 + 0.75);
 
-    // Bright gutter behind cells — gaps between filled squares reveal it as contrasting grid lines
-    ctx.fillStyle = 'rgba(90, 170, 240, 0.65)';
-    ctx.fillRect(ox, oy, cols * cellW, rows * cellH);
+    // ── Edge pass: draw lines between each node and its 8 neighbors ──
+    // Edge brightness = average of the two endpoint activations, so active
+    // clusters glow their edges and the structure reads as a true graph.
+    const nodeCX = (cc) => ox + cc * cellW + cellW / 2;
+    const nodeCY = (r)  => oy + r  * cellH + cellH / 2;
+    const edgeDirs = [
+      [0, 1], [1, 0], [1, 1], [1, -1]  // right, down, down-right, down-left (undirected)
+    ];
+    for (let r = 0; r < rows; r++) {
+      for (let cc = 0; cc < cols; cc++) {
+        for (const [dr, dc] of edgeDirs) {
+          const r2 = r + dr, c2 = cc + dc;
+          if (r2 < 0 || r2 >= rows || c2 < 0 || c2 >= cols) continue;
+          const a = data[r][cc], b = data[r2][c2];
+          const strength = Math.max(a, b);
+          // Base line (dim) so graph structure is always visible
+          ctx.strokeStyle = `rgba(120, 180, 240, ${0.18 + strength * 0.55})`;
+          ctx.lineWidth = 0.9 + strength * 1.8;
+          if (strength > 0.5) {
+            ctx.shadowColor = `rgba(255, 120, 220, ${strength * 0.6})`;
+            ctx.shadowBlur = strength * 8;
+          }
+          ctx.beginPath();
+          ctx.moveTo(nodeCX(cc), nodeCY(r));
+          ctx.lineTo(nodeCX(c2), nodeCY(r2));
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
+      }
+    }
 
+    // ── Node pass: draw the cells as boxes on top of the edges ──
+    const inset = 6;
     for (let r = 0; r < rows; r++) {
       for (let cc = 0; cc < cols; cc++) {
         const val = data[r][cc];
         const x = ox + cc * cellW;
         const y = oy + r * cellH;
 
-        // Color
         let cr, cg, cb;
         if (val < 0.3) {
           cr = 10 + val * 40; cg = 8 + val * 30; cb = 30 + val * 200;
@@ -1321,12 +1349,17 @@ tocLinks.forEach(a => {
         }
 
         if (val > 0.4) {
-          ctx.shadowColor = `rgba(${cr|0},${cg|0},${cb|0},0.6)`;
-          ctx.shadowBlur = val * 12;
+          ctx.shadowColor = `rgba(${cr|0},${cg|0},${cb|0},0.7)`;
+          ctx.shadowBlur = val * 14;
         }
         ctx.fillStyle = `rgb(${cr|0},${cg|0},${cb|0})`;
-        ctx.fillRect(x + 2, y + 2, cellW - 4, cellH - 4);
+        ctx.fillRect(x + inset / 2, y + inset / 2, cellW - inset, cellH - inset);
         ctx.shadowBlur = 0;
+
+        // Subtle border so boxes stay distinct from edges
+        ctx.strokeStyle = 'rgba(0, 200, 255, 0.25)';
+        ctx.lineWidth = 0.75;
+        ctx.strokeRect(x + inset / 2, y + inset / 2, cellW - inset, cellH - inset);
       }
     }
 
