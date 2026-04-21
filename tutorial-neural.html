@@ -551,6 +551,16 @@ body.slideshow-mode .slide.active {
   background: var(--bg);
   animation: slide-fade 0.25s ease;
 }
+body.slideshow-mode .slide.active.scrollable {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
+body.slideshow-mode .slide.active.scrollable::-webkit-scrollbar { width: 8px; }
+body.slideshow-mode .slide.active.scrollable::-webkit-scrollbar-thumb {
+  background: rgba(0,200,255,0.4);
+  border-radius: 4px;
+}
 body.slideshow-mode .slide.active .section-heading { font-size: 30px; margin: 0 0 4px 0; padding-top: 0; }
 body.slideshow-mode .slide.active .section-sub { margin-bottom: 14px; }
 body.slideshow-mode .slide.active .prose { font-size: 15px; margin-bottom: 12px; line-height: 1.65; }
@@ -1427,10 +1437,12 @@ tocLinks.forEach(a => {
   const slides = [];
   const kids = Array.from(content.children);
   let current = null;
+  const scrollableIds = new Set(['s5', 's8']);
   kids.forEach(el => {
     if (el.classList && el.classList.contains('section-heading')) {
       current = document.createElement('div');
       current.className = 'slide';
+      if (scrollableIds.has(el.id)) current.classList.add('scrollable');
       slides.push(current);
     }
     if (current) current.appendChild(el);
