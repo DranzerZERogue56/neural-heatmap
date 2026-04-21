@@ -1276,8 +1276,9 @@ tocLinks.forEach(a => {
 
   // Seed a cluster
   function seedCluster(cr, cc, rad, intensity) {
-    for (let r = -rad; r <= rad; r++) {
-      for (let c = -rad; c <= rad; c++) {
+    const lo = Math.ceil(-rad), hi = Math.floor(rad);
+    for (let r = lo; r <= hi; r++) {
+      for (let c = lo; c <= hi; c++) {
         const rr = cr + r, ccc = cc + c;
         if (rr >= 0 && rr < rows && ccc >= 0 && ccc < cols) {
           const d = Math.sqrt(r*r + c*c);
