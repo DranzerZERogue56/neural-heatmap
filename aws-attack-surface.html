@@ -595,7 +595,214 @@ await db.query.users.findFirst({ where: eq(users.username, u) });`,
           tip: 'Prepared statements make the parser treat input as values only. A quote in a parameter is just a quote.',
         },
       },
-      // 1.2 – 1.5 + sandbox come in the next pass (Task #4).
+      2: {
+        id: '1.2', name: 'The Iron Gate',
+        endpoint: 'POST /admin/login',
+        query: "SELECT id FROM admins WHERE email='{u}' AND pw_hash='{p}'",
+        field: 'email',
+        goal: 'Bypass auth where a trailing AND clause would still need handling.',
+        reconNotes: [
+          'Admin login. Two string columns.',
+          'Error responses are now generic ("invalid credentials") — less leakage.',
+          'Both quote style and comment are required to neutralize the AND pw_hash=... clause.',
+        ],
+        hints: [
+          'The password half of the WHERE still runs unless you comment it out.',
+          'Close the quote, add a tautology, comment the rest: \' OR 1=1 --',
+          "Any email shape will do — the OR makes the whole WHERE true.",
+        ],
+        check(p) {
+          const closes = /'/.test(p);
+          const taut   = /or\s+['"]?\w+['"]?\s*=\s*['"]?\w+['"]?/i.test(p) || /or\s+true/i.test(p);
+          const cmt    = /(--|\/\*|#)/.test(p);
+          if (closes && taut && cmt) return { ok: true,  narrate: 'The iron bolt slides open.' };
+          if (closes && taut)        return { ok: 'partial', narrate: 'You tilt the lock — but pw_hash check errors. The log flags you.' };
+          return { ok: false, narrate: 'Query parses, returns nothing. The gate is unmoved.' };
+        },
+        unlockTokens: ["1=1", "' OR 1=1 --", '/*'],
+        defense: {
+          title: 'Prepared Statements + Generic Errors',
+          body: 'Generic errors are good, but they don\'t fix injection — parameters do. Combine both.',
+          code:
+`// Still vulnerable even with generic errors:
+const sql = "SELECT id FROM admins WHERE email='" + email + "' AND pw_hash='" + hash + "'";
+
+// Fixed:
+const row = db.prepare(
+  "SELECT id FROM admins WHERE email = ? AND pw_hash = ?"
+).get(email, hash);`,
+          tip: 'Hiding errors slows an attacker; parameters stop them.',
+        },
+      },
+      3: {
+        id: '1.3', name: 'The Rune Lock',
+        endpoint: 'GET /user?id={n}',
+        query: 'SELECT * FROM users WHERE id={u} AND active=1',
+        field: 'id',
+        goal: 'Bypass a numeric-context injection (no quotes around the field).',
+        reconNotes: [
+          'URL param id is an integer — no quotes in the query.',
+          'No string to break out of. Syntax differs from string injection.',
+          'Appending "OR 1=1 --" with no quote works here.',
+        ],
+        hints: [
+          'No quotes around id = numeric context. You do not need \'.',
+          'Try   1 OR 1=1 --',
+          'The --  comments the AND active=1 out.',
+        ],
+        check(p) {
+          const noQuoteBreakout = /^\s*\d+\s+or\s+\d+\s*=\s*\d+\s*(--|\/\*|#)/i.test(p);
+          const taut = /or\s+\d+\s*=\s*\d+/i.test(p);
+          const cmt  = /(--|\/\*|#)/.test(p);
+          if (noQuoteBreakout) return { ok: true, narrate: 'The runes reshape. Every row is yours.' };
+          if (taut && cmt)     return { ok: true, narrate: 'A crude carving, but it holds. Rows unlocked.' };
+          if (taut)            return { ok: 'partial', narrate: 'Tautology lands but AND active=1 still filters. Partial data.' };
+          return { ok: false, narrate: 'The runes reject the shape.' };
+        },
+        unlockTokens: ['1 OR 1=1 --'],
+        defense: {
+          title: 'Cast / Validate Numeric Input',
+          body: 'For numeric fields, reject anything that isn\'t a number before it reaches SQL.',
+          code:
+`// Vulnerable:
+const sql = "SELECT * FROM users WHERE id=" + req.query.id + " AND active=1";
+
+// Fixed (parameterized):
+db.prepare("SELECT * FROM users WHERE id = ? AND active = 1").get(Number(req.query.id));
+
+// Also fixed (schema validation):
+const id = z.coerce.number().int().positive().parse(req.query.id);`,
+          tip: 'Parameterize even integers. "Just cast it" breaks when a framework changes behavior; prepared statements never do.',
+        },
+      },
+      4: {
+        id: '1.4', name: 'The Silent Guard',
+        endpoint: 'POST /login',
+        query: "SELECT * FROM users WHERE username='{u}' AND password='{p}'",
+        field: 'username',
+        goal: 'Bypass a primitive WAF that blocks the bare word OR.',
+        reconNotes: [
+          'A keyword filter strips " OR " (with spaces around it) from input.',
+          'But inline comments split tokens: OR/**/1=1 survives.',
+          'Mixed case and comment tricks bypass naive pattern filters.',
+        ],
+        hints: [
+          'Try embedding an inline comment between letters of OR.',
+          "' /*!OR*/ 1=1 -- or ' oR 1=1 -- may slip through.",
+          "Payload: '/**/OR/**/1=1--",
+        ],
+        check(p) {
+          const hasEvasion = /('|\s)(\/\*.*?\*\/|['"]+)?o['"\/*]*r/i.test(p) || /\|\|/.test(p);
+          const taut = /(1\s*=\s*1|true)/i.test(p);
+          const cmt  = /(--|\/\*|#)/.test(p);
+          if (hasEvasion && taut && cmt) return { ok: true, narrate: 'The guard never sees the word. You walk past.' };
+          if (taut && cmt)               return { ok: false, narrate: 'The WAF stripped your OR. Nothing passes.' };
+          return { ok: false, narrate: 'Blocked. The guard is awake.' };
+        },
+        unlockTokens: ['/**/', 'oR', '||'],
+        defense: {
+          title: 'Do Not Rely on Keyword Blacklists',
+          body: 'Blacklists are trivially bypassed (case, comments, alternatives like ||). Use prepared statements and allowlist on fields that are enumerations.',
+          code:
+`// Vulnerable WAF:
+if (/\\bOR\\b/i.test(input)) reject();
+
+// Bypass:  admin'/**/oR/**/1=1--
+
+// Fixed:
+db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(u, p);
+// For enums, allowlist:
+if (!['asc','desc'].includes(sort)) throw new Error('bad sort');`,
+          tip: 'Blacklists ship with a 100% bypass rate over time. Parameterize and allowlist.',
+        },
+      },
+      5: {
+        id: '1.5', name: "The Captain's Cipher",
+        endpoint: 'POST /login',
+        query: "SELECT role FROM users WHERE username='{u}' AND password='{p}'",
+        field: 'username',
+        goal: 'Log in specifically as the "captain" user without changing the query structure.',
+        reconNotes: [
+          'Only one account has the role needed: captain.',
+          'A generic OR 1=1 returns the first user row — not necessarily captain.',
+          'You need to pin username to captain and neutralize the password check.',
+        ],
+        hints: [
+          "Specify the user: username='captain'",
+          "Then neutralize the AND password clause with a comment.",
+          "Payload: captain'--",
+        ],
+        check(p) {
+          const pinned = /captain'\s*(--|\/\*|#)/i.test(p);
+          if (pinned) return { ok: true, narrate: 'The crew bows. You are captain.' };
+          if (/'.*--/.test(p)) return { ok: 'partial', narrate: 'You logged in, but as the wrong user. Pin the username.' };
+          return { ok: false, narrate: 'Denied.' };
+        },
+        unlockTokens: ["captain'--"],
+        defense: {
+          title: 'Defense in Depth — Auth != Identity',
+          body: 'Even if a query "returns a row," confirm identity server-side with a verified session and role claim, not a string match.',
+          code:
+`// Bad — trusts whatever row comes back:
+const user = db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(u, p);
+if (user) session.userId = user.id;  // attacker picks the row
+
+// Better — verify password server-side with a real hash library:
+const user = db.prepare("SELECT id, pw_hash FROM users WHERE username = ?").get(u);
+if (!user) return fail();
+if (!await argon2.verify(user.pw_hash, p)) return fail();
+session.userId = user.id;`,
+          tip: 'Parameterize the query AND verify the credential in application code — two locks are better than one.',
+        },
+      },
+    },
+    sandbox(seed) {
+      // Deterministic-ish random from seed
+      const rand = mulberry32(seed);
+      const fields  = ['username', 'email', 'api_key', 'handle'];
+      const tables  = ['accounts', 'members', 'agents', 'wardens'];
+      const field   = fields[Math.floor(rand() * fields.length)];
+      const table   = tables[Math.floor(rand() * tables.length)];
+      const numeric = rand() < 0.35;
+      const wafOR   = rand() < 0.3;
+      const query = numeric
+        ? `SELECT * FROM ${table} WHERE id={u} AND active=1`
+        : `SELECT * FROM ${table} WHERE ${field}='{u}' AND pw='{p}'`;
+      return {
+        id: `1.S-${seed}`, name: `Sandbox: ${table}`,
+        endpoint: numeric ? `GET /${table}?id={n}` : `POST /${table}/login`,
+        query, field: numeric ? 'id' : field,
+        goal: numeric
+          ? `Bypass the ${table} filter via numeric-context injection.`
+          : `Bypass the ${table} login by breaking out of the ${field} string.`,
+        reconNotes: [
+          `Schema: ${table}(${numeric ? 'id int' : field + ' text, pw text'}).`,
+          wafOR ? 'A primitive WAF blocks the bare word OR.' : 'No WAF detected.',
+          'Sandbox: cheatsheet definitions are visible.',
+        ],
+        hints: [],                 // no hints in sandbox
+        check(p) {
+          if (numeric) {
+            const ok = /\d+\s+or\s+\d+\s*=\s*\d+\s*(--|\/\*|#)/i.test(p);
+            return ok ? { ok: true, narrate: 'Rows pour out.' } : { ok: false, narrate: 'Rejected.' };
+          }
+          const closes = /'/.test(p);
+          const taut   = /or\s+['"]?\w+['"]?\s*=\s*['"]?\w+['"]?/i.test(p);
+          const cmt    = /(--|\/\*|#)/.test(p);
+          const orOk   = !wafOR || /\/\*.*?\*\/|oR|\|\|/i.test(p);
+          return (closes && taut && cmt && orOk)
+            ? { ok: true, narrate: 'You are in.' }
+            : { ok: false, narrate: wafOR ? 'WAF or syntax blocked.' : 'Query returned empty.' };
+        },
+        unlockTokens: [],
+        defense: {
+          title: 'Sandbox Cleared',
+          body: 'Same defenses as the authored levels — parameterize and allowlist. No new tokens.',
+          code: '// See earlier Defense Cards.',
+          tip: 'Re-roll for a fresh seed.',
+        },
+        sandbox: true,
+      };
     },
   },
   // Chapters 2 – 8 + NoSQL bonus land in Task #5.
@@ -826,8 +1033,9 @@ function onMapClick(e) {
   if (s === 'locked') { log('That chamber is sealed. Clear prior levels first.', 'miss'); return; }
   const ch = currentChapter() || CHAPTERS[1];
   if (n.isSandbox) {
-    state.chapter = ch.id; state.level = 99;
-    log('You step into the Sandbox. Randomized schema awaits. (Content lands in later pass.)', 'lore');
+    _sandboxCache = null;
+    state.sandboxSeed = Math.floor(Math.random() * 1e9);
+    startLevel(ch.id, 99);
   } else {
     startLevel(ch.id, n.lvNum);
   }
@@ -909,10 +1117,38 @@ function showCheatsheet() {
 }
 
 /* ── Encounter helpers ─────────────────────────────────────────────────── */
+function mulberry32(seed) {
+  let t = seed >>> 0;
+  return function() {
+    t = (t + 0x6D2B79F5) >>> 0;
+    let x = t;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let _sandboxCache = null; // { chapter, seed, level }
+
 function currentChapter() { return CHAPTERS[state.chapter] || null; }
 function currentLevel() {
   const ch = currentChapter();
-  return ch ? ch.levels[state.level] : null;
+  if (!ch) return null;
+  if (state.level === 99) {
+    if (_sandboxCache && _sandboxCache.chapter === ch.id) return _sandboxCache.level;
+    const seed = (state.sandboxSeed ||= Math.floor(Math.random() * 1e9));
+    const lv = ch.sandbox ? ch.sandbox(seed) : null;
+    _sandboxCache = { chapter: ch.id, seed, level: lv };
+    return lv;
+  }
+  return ch.levels[state.level];
+}
+function rerollSandbox() {
+  state.sandboxSeed = Math.floor(Math.random() * 1e9);
+  _sandboxCache = null;
+  saveState();
+  byId('log-body').innerHTML = '';
+  log(`Sandbox re-rolled. Seed: ${state.sandboxSeed}`, 'lore');
+  startLevel(state.chapter, 99);
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1009,18 +1245,17 @@ function doCast() {
   const builtQuery = lv.query.replace('{u}', state.payload).replace('{p}', '????');
   log(`> ${builtQuery}`, 'lore');
 
-  if (result.ok === true) {
-    log(result.narrate, 'crit');
+  if (result.ok === true || result.ok === 'partial') {
+    log(result.narrate, result.ok === true ? 'crit' : 'hit');
     state.phase = 'loot';
-  } else if (result.ok === 'partial') {
-    log(result.narrate, 'hit');
-    state.phase = 'loot';
+    renderPhase();
+    doLoot(result.ok === true);   // immediate reward + defense card
   } else {
     log(result.narrate, 'fail');
     state.phase = 'craft';
+    renderPhase();
   }
   renderStats();
-  renderPhase();
   saveState();
   if (state.hp <= 0) {
     log('Your session is banned. Resting restores HP…', 'fail');
@@ -1030,19 +1265,28 @@ function doCast() {
   }
 }
 
-function doLoot() {
+function doLoot(fullSuccess = true) {
   const lv = currentLevel();
   if (!lv) return;
-  const gain = 10;
+  const isSandbox = state.level === 99;
+  const gain = isSandbox ? 25 : (fullSuccess ? 10 : 5);
   state.xp += gain;
   (lv.unlockTokens || []).forEach(t => {
     if (!state.inventory.includes(t)) state.inventory.push(t);
   });
-  state.clearedLevels[lv.id] = true;
+  if (isSandbox) {
+    state.sandboxCleared[state.chapter] = true;
+  } else {
+    state.clearedLevels[lv.id] = true;
+  }
+  // Stat growth milestones
+  const totalCleared = Object.keys(state.clearedLevels).length;
+  if ([5, 15, 30].includes(totalCleared)) { state.stealth++; log('Stealth +1.', 'crit'); }
+  if ([10, 20, 40].includes(totalCleared)) { state.insight++; log('Insight +1.', 'crit'); }
   renderStats();
   renderTokens();
   saveState();
-  log(`+${gain} XP. New tokens unlocked in the Spellbook.`, 'crit');
+  log(`+${gain} XP${lv.unlockTokens && lv.unlockTokens.length ? ' • new tokens unlocked' : ''}.`, 'crit');
   openDefenseCard(lv.defense);
 }
 
@@ -1082,18 +1326,24 @@ function advance() {
       // doCast already routed; if stuck here, bump to craft
       state.phase = 'craft'; renderPhase();
       break;
-    case 'loot':
-      doLoot();
-      state.phase = 'recon';
+    case 'loot': {
       const ch = currentChapter();
-      const next = ch && ch.levels[state.level + 1];
+      const wasSandbox = state.level === 99;
+      const nextNum = wasSandbox ? null : state.level + 1;
+      const next = !wasSandbox && ch && ch.levels[nextNum];
       if (next) {
-        log('▸ Next level ready. Close the Defense Card and press Advance.', 'lore');
+        startLevel(state.chapter, nextNum);
+      } else if (wasSandbox) {
+        log('Re-rolling the sandbox…', 'lore');
+        rerollSandbox();
       } else {
-        log(`Chapter ${state.chapter} authored content ends here. More levels in the next build pass.`, 'lore');
+        log(`Chapter ${state.chapter} authored content cleared. Click the sandbox on the map, or wait for next chapters.`, 'crit');
+        state.phase = 'recon';
+        renderPhase(); saveState();
+        drawMap();
       }
-      renderPhase(); saveState();
       break;
+    }
   }
 }
 
