@@ -438,12 +438,16 @@ button.arcane:disabled {
     </div>
     <div class="panel-body">
       <div class="tab-pane" data-pane="tokens">
-        <div class="dim" style="margin-bottom:8px; font-size:11px;">Click a token to append to your payload.</div>
-        <div id="token-list">
-          <span class="token locked" title="Locked — earn in Chapter 1">'  (string quote)</span>
-          <span class="token locked">OR</span>
-          <span class="token locked">--</span>
-          <span class="token locked">UNION SELECT</span>
+        <div class="dim" style="margin-bottom:6px; font-size:11px;">Click a token or type your own.</div>
+        <div id="token-list"></div>
+        <div style="margin-top:12px;">
+          <div class="dim" style="font-size:10px; letter-spacing:2px; text-transform:uppercase; margin-bottom:4px;">Payload</div>
+          <textarea id="payload-input" rows="4"
+            style="width:100%; background:var(--ink-raised); border:var(--border-rune); color:var(--phosphor); font-family:var(--font-mono); font-size:12px; padding:8px; border-radius:2px; resize:vertical;"
+            placeholder="…craft your payload"></textarea>
+          <div style="display:flex; gap:6px; margin-top:6px;">
+            <button class="arcane" id="btn-clear-payload" style="flex:1; padding:6px;">Clear</button>
+          </div>
         </div>
       </div>
       <div class="tab-pane" data-pane="schema" style="display:none;">
@@ -520,20 +524,90 @@ const SAVE_KEY = 'sqli-dungeon.save.v1';
 const PHASES = ['recon', 'craft', 'cast', 'loot'];
 
 const DEFAULT_STATE = {
-  chapter: 0, level: 0,           // 0 = prologue
+  chapter: 0, level: 0,           // 0/0 = prologue, 99 = sandbox
   phase: 'recon',
   hp: 20, hpMax: 20,
   mp: 10, mpMax: 10,
   xp: 0,
   stealth: 10, insight: 10,
-  inventory: [],                  // unlocked payload tokens
+  inventory: [],                  // unlocked payload tokens (strings)
   schema: {},                     // discovered tables per endpoint
   payload: '',                    // currently-crafted payload string
+  hintsUsed: 0,
   unlockedChapters: [1],
   clearedLevels: {},              // { "1.1": true, ... }
   sandboxCleared: {},             // { "1": true }
   flags: { tutorialSeen: false },
 };
+
+/* ── Chapter / level data ──────────────────────────────────────────────────
+   Level 1.1 is authored as a working proof of the engine.
+   Remaining 1.2 – 1.5 + sandbox + chapters 2–8 + NoSQL fill in later passes.
+   ────────────────────────────────────────────────────────────────────────── */
+const CHAPTERS = {
+  1: {
+    id: 1, name: 'Auth Bypass', class: 'classic',
+    intro: 'A login form. A query stitched with string concatenation. Classic.',
+    levels: {
+      1: {
+        id: '1.1',
+        name: 'The Wooden Door',
+        endpoint: 'POST /login',
+        query:    "SELECT * FROM users WHERE username='{u}' AND password='{p}'",
+        field:    'username',
+        goal: "Log in as anyone without knowing a password.",
+        reconNotes: [
+          'Login form: username + password fields.',
+          'Failed logins echo "user not found" — errors are verbose.',
+          'No visible rate limiting yet.',
+        ],
+        hints: [
+          'Input is concatenated straight into the WHERE clause.',
+          "A single quote (') ends a string literal. What could follow?",
+          "Try username:  admin'--   (password can be anything).",
+        ],
+        check(payload) {
+          const closes  = /'/.test(payload);
+          const taut    = /(or\s+['"]?\d+['"]?\s*=\s*['"]?\d+['"]?|or\s+true|or\s+'[^']*'\s*=\s*'[^']*')/i.test(payload);
+          const comment = /(--|\/\*|#)/.test(payload);
+          const adminShortcut = /admin'\s*--/i.test(payload);
+          if (adminShortcut || (closes && taut && comment))
+            return { ok: true, narrate: 'The door yields. You are admin.' };
+          if (closes && taut)
+            return { ok: 'partial', narrate: 'You slip the lock, but a trailing clause raises an error. Half credit.' };
+          return { ok: false, narrate: 'The door holds. The query returns nothing.' };
+        },
+        unlockTokens: ["'", 'OR', '--', "' OR '1'='1", "' OR 1=1 --", "admin'--"],
+        defense: {
+          title: 'Parameterize the Query',
+          body:  'Never interpolate user input into SQL strings. Bind parameters so input stays <i>data</i> and can never become <i>code</i>.',
+          code:
+`// Vulnerable — string concatenation:
+const sql = "SELECT * FROM users WHERE username='" + u + "' AND password='" + p + "'";
+
+// Fixed — prepared statement (node-sqlite3 / better-sqlite3):
+db.prepare(
+  "SELECT * FROM users WHERE username = ? AND password = ?"
+).get(u, p);
+
+// Fixed — ORM (Drizzle / Prisma / SQLAlchemy):
+await db.query.users.findFirst({ where: eq(users.username, u) });`,
+          tip: 'Prepared statements make the parser treat input as values only. A quote in a parameter is just a quote.',
+        },
+      },
+      // 1.2 – 1.5 + sandbox come in the next pass (Task #4).
+    },
+  },
+  // Chapters 2 – 8 + NoSQL bonus land in Task #5.
+};
+
+const KNOWN_TOKENS = [
+  "'", 'OR', '--', '#', '/*', '*/',
+  "' OR '1'='1", "' OR 1=1 --", "admin'--",
+  'UNION', 'UNION SELECT', 'SELECT', 'FROM', 'WHERE', 'NULL',
+  'SLEEP(5)', 'BENCHMARK(', 'WAITFOR DELAY',
+  ';', 'INFORMATION_SCHEMA.TABLES', 'CONCAT(',
+];
 
 let state = loadState();
 
@@ -627,8 +701,17 @@ function closeModal() { byId('modal-overlay').classList.remove('show'); }
 
 /* ── Hint + Cheatsheet (gated by phase/mode) ───────────────────────────── */
 function showHint() {
-  // Real hints come from level data; stub here.
-  log('You squint at the login form. Input fields echo back unescaped.', 'lore');
+  const lv = currentLevel();
+  if (!lv) { log('No encounter active. Press Begin to open Chapter 1.', 'miss'); return; }
+  const idx = Math.min(state.hintsUsed, lv.hints.length - 1);
+  const text = lv.hints[idx];
+  state.hintsUsed++;
+  saveState();
+  const box = document.createElement('div');
+  box.className = 'hint';
+  box.textContent = `Hint ${state.hintsUsed}: ${text}`;
+  byId('log-body').appendChild(box);
+  byId('log-body').parentElement.scrollTop = byId('log-body').parentElement.scrollHeight;
 }
 function showCheatsheet() {
   const inSandbox = state.level === 99;
@@ -658,33 +741,233 @@ function showCheatsheet() {
   openModal('Syntax Cheatsheet', html);
 }
 
-/* ── Phase advance stub ────────────────────────────────────────────────── */
-function advance() {
-  const i = PHASES.indexOf(state.phase);
-  state.phase = PHASES[(i + 1) % PHASES.length];
+/* ── Encounter helpers ─────────────────────────────────────────────────── */
+function currentChapter() { return CHAPTERS[state.chapter] || null; }
+function currentLevel() {
+  const ch = currentChapter();
+  return ch ? ch.levels[state.level] : null;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ── D20 rolls ─────────────────────────────────────────────────────────── */
+function rollD20() { return 1 + Math.floor(Math.random() * 20); }
+function skillCheck(stat, dc) {
+  const roll = rollD20();
+  const mod  = state[stat] - 10;
+  const total = roll + mod;
+  return {
+    roll, mod, total, dc,
+    crit:   roll === 20,
+    fumble: roll === 1,
+    success: roll === 20 || (roll !== 1 && total >= dc),
+  };
+}
+
+/* ── Payload builder ───────────────────────────────────────────────────── */
+function appendToken(tok) {
+  const ta = byId('payload-input');
+  const cur = ta.value;
+  const needsSpace = cur.length && !/\s$/.test(cur) && !tok.startsWith(' ');
+  ta.value = cur + (needsSpace ? ' ' : '') + tok;
+  state.payload = ta.value;
+  ta.focus();
+  saveState();
+}
+function clearPayload() {
+  byId('payload-input').value = '';
+  state.payload = '';
+  saveState();
+}
+function syncPayloadFromInput() {
+  state.payload = byId('payload-input').value;
+}
+function renderTokens() {
+  const el = byId('token-list');
+  if (!el) return;
+  el.innerHTML = KNOWN_TOKENS.map(t => {
+    const unlocked = state.inventory.includes(t);
+    const cls = unlocked ? 'token' : 'token locked';
+    const title = unlocked ? 'Click to append' : 'Locked — earn by clearing levels';
+    return `<span class="${cls}" data-tok="${escapeHtml(t)}" title="${title}">${escapeHtml(t)}</span>`;
+  }).join('');
+  el.querySelectorAll('.token:not(.locked)').forEach(node => {
+    node.addEventListener('click', () => appendToken(node.dataset.tok));
+  });
+}
+
+/* ── Phase handlers ────────────────────────────────────────────────────── */
+function startLevel(chapter, level) {
+  state.chapter = chapter;
+  state.level = level;
+  state.phase = 'recon';
+  state.payload = '';
+  state.hintsUsed = 0;
+  byId('payload-input').value = '';
+  saveState();
+  const lv = currentLevel();
+  if (!lv) { log('That level has not been authored yet. Check back next pass.', 'miss'); return; }
+  log(`⚜ ${lv.id} — ${lv.name}  |  ${lv.endpoint}`, 'crit');
+  log(`Goal: ${lv.goal}`, 'lore');
+  byId('chapter-label').textContent = `Chapter ${chapter} — ${currentChapter().name}`;
+  doRecon();
+  renderAll();
+}
+
+function doRecon() {
+  const lv = currentLevel();
+  if (!lv) return;
+  log(`— Recon: ${lv.endpoint} —`, 'hit');
+  lv.reconNotes.forEach(n => log('• ' + n, 'lore'));
+  log('When ready, Advance to Craft.', 'lore');
+}
+
+function doCast() {
+  const lv = currentLevel();
+  if (!lv) return;
+  syncPayloadFromInput();
+  if (!state.payload.trim()) {
+    log('No payload to cast. Return to Craft.', 'miss');
+    state.phase = 'craft'; renderPhase(); return;
+  }
+  // Stealth check vs WAF (DC 12 baseline)
+  const det = skillCheck('stealth', 12);
+  if (det.crit)         log(`Stealth 🎲 nat 20 — you phase through the WAF untouched.`, 'crit');
+  else if (det.fumble)  { state.hp = Math.max(0, state.hp - 4); log(`Stealth 🎲 nat 1 — the WAF flags you hard. −4 HP.`, 'fail'); }
+  else if (!det.success){ state.hp = Math.max(0, state.hp - 2); log(`Stealth 🎲 ${det.roll}+${det.mod}=${det.total} vs DC ${det.dc} — detection. −2 HP.`, 'miss'); }
+  else                  log(`Stealth 🎲 ${det.roll}+${det.mod}=${det.total} — clean approach.`, 'hit');
+
+  const result = lv.check(state.payload);
+  const builtQuery = lv.query.replace('{u}', state.payload).replace('{p}', '????');
+  log(`> ${builtQuery}`, 'lore');
+
+  if (result.ok === true) {
+    log(result.narrate, 'crit');
+    state.phase = 'loot';
+  } else if (result.ok === 'partial') {
+    log(result.narrate, 'hit');
+    state.phase = 'loot';
+  } else {
+    log(result.narrate, 'fail');
+    state.phase = 'craft';
+  }
+  renderStats();
   renderPhase();
   saveState();
-  log(`phase ▸ ${state.phase}`, 'hit');
+  if (state.hp <= 0) {
+    log('Your session is banned. Resting restores HP…', 'fail');
+    state.hp = state.hpMax;
+    state.phase = 'recon';
+    renderStats(); renderPhase(); saveState();
+  }
+}
+
+function doLoot() {
+  const lv = currentLevel();
+  if (!lv) return;
+  const gain = 10;
+  state.xp += gain;
+  (lv.unlockTokens || []).forEach(t => {
+    if (!state.inventory.includes(t)) state.inventory.push(t);
+  });
+  state.clearedLevels[lv.id] = true;
+  renderStats();
+  renderTokens();
+  saveState();
+  log(`+${gain} XP. New tokens unlocked in the Spellbook.`, 'crit');
+  openDefenseCard(lv.defense);
+}
+
+function openDefenseCard(d) {
+  const html = `
+    <div class="defense-card">
+      <h3>${d.title}</h3>
+      <p>${d.body}</p>
+      <pre>${escapeHtml(d.code)}</pre>
+      <div class="tip">${d.tip}</div>
+    </div>
+  `;
+  openModal('Defense Card', html);
+}
+
+/* ── Advance button (phase router) ─────────────────────────────────────── */
+function advance() {
+  if (state.chapter === 0) {
+    startLevel(1, 1);
+    byId('btn-advance').textContent = 'Advance ▸';
+    return;
+  }
+  switch (state.phase) {
+    case 'recon':
+      state.phase = 'craft';
+      renderPhase(); saveState();
+      log('— Craft your payload —', 'hit');
+      break;
+    case 'craft':
+      syncPayloadFromInput();
+      if (!state.payload.trim()) { log('Nothing to cast yet.', 'miss'); return; }
+      state.phase = 'cast';
+      renderPhase();
+      doCast();
+      break;
+    case 'cast':
+      // doCast already routed; if stuck here, bump to craft
+      state.phase = 'craft'; renderPhase();
+      break;
+    case 'loot':
+      doLoot();
+      state.phase = 'recon';
+      const ch = currentChapter();
+      const next = ch && ch.levels[state.level + 1];
+      if (next) {
+        log('▸ Next level ready. Close the Defense Card and press Advance.', 'lore');
+      } else {
+        log(`Chapter ${state.chapter} authored content ends here. More levels in the next build pass.`, 'lore');
+      }
+      renderPhase(); saveState();
+      break;
+  }
+}
+
+/* ── Top-level render ──────────────────────────────────────────────────── */
+function renderAll() {
+  renderStats();
+  renderPhase();
+  renderTokens();
+  byId('payload-input').value = state.payload || '';
+  const ch = currentChapter();
+  byId('chapter-label').textContent = ch
+    ? `Chapter ${ch.id} — ${ch.name}`
+    : 'Chapter 0 — Prologue';
 }
 
 /* ── Boot ──────────────────────────────────────────────────────────────── */
 function boot() {
   wireTabs();
   initCanvas();
-  renderStats();
-  renderPhase();
+  renderAll();
 
   byId('btn-hint').addEventListener('click', showHint);
   byId('btn-cheatsheet').addEventListener('click', showCheatsheet);
   byId('btn-advance').addEventListener('click', advance);
+  byId('btn-clear-payload').addEventListener('click', clearPayload);
+  byId('payload-input').addEventListener('input', syncPayloadFromInput);
   byId('modal-close').addEventListener('click', closeModal);
   byId('modal-overlay').addEventListener('click', e => {
     if (e.target.id === 'modal-overlay') closeModal();
   });
 
-  if (!state.flags.tutorialSeen) {
+  // If mid-run, resume; otherwise prologue copy.
+  if (state.chapter === 0) {
+    byId('btn-advance').textContent = 'Begin';
     log('The spellbook lies open. A faint rune marks Chapter 1 — Auth Bypass.', 'lore');
     log('Press Begin to cross the threshold.', 'lore');
+  } else {
+    byId('btn-advance').textContent = 'Advance ▸';
+    log('Resumed from your last save.', 'hit');
+    const lv = currentLevel();
+    if (lv) log(`⚜ ${lv.id} — ${lv.name}  |  phase: ${state.phase}`, 'lore');
   }
 }
 
