@@ -25,7 +25,7 @@ A turn-based, D&D-inspired game that teaches CS majors what SQL injection is, ho
 
 ## 3. SQLi Classes to Cover (cover all)
 
-Level chapter per class. Order is pedagogical (each builds on the last).
+Level chapter per class. Order is pedagogical (each builds on the last). create 5 levels per chapter
 
 1. **Classic / In-band — Auth Bypass** (`' OR '1'='1`)
 2. **Error-Based** (extract data via forced DB errors)
@@ -36,7 +36,7 @@ Level chapter per class. Order is pedagogical (each builds on the last).
 7. **Second-Order** (payload stored now, fires later on a different query)
 8. **Out-of-Band** (DNS / HTTP exfiltration — simulated)
 
-> **Open question:** include NoSQL injection as a bonus chapter, or keep strictly SQL? *(edit here)*
+> **Open question:** include NoSQL injection as a bonus chapter, or keep strictly SQL? *(yes this would be nice to see)*
 
 ---
 
@@ -45,15 +45,14 @@ Level chapter per class. Order is pedagogical (each builds on the last).
 Each encounter = one vulnerable endpoint on the AWS server graph (reuse existing node model).
 
 **Turn structure:**
-1. **Recon phase** — player inspects the endpoint: request shape, visible response, error verbosity. Costs 0–1 action.
-2. **Craft phase** — player composes a payload from SQL "spell components" (tokens / snippets they've unlocked).
+1. **Recon phase** — player inspects the endpoint: request shape, visible response, error verbosity. Costs 0–1 action. *(create a hint button that gives little tid-bits of help)*
+2. **Craft phase** — player composes a payload from SQL "spell components" (tokens / snippets they've unlocked). (give a syntax CheatSheet, don't let the cheatsheet explain what the words do during a active level but have it show what words do during sandbox.)
 3. **Cast phase** — payload is submitted; the simulated DB responds. Success/partial/fail is narrated.
 4. **Loot phase** — on success: XP, unlocks (new tokens, new endpoints), and a **defense card** explaining the fix.
 
-**Stats to track per run:** HP (detections before you're IP-banned), MP (rate-limit budget), XP, payload inventory, discovered schema.
+**Stats to track per run:** HP (detections before you're IP-banned), MP (rate-limit budget), XP, payload inventory, discovered schema. (give a detailed stat tracker, to see how to gain these stats.)
 
-**Dice / randomness:** WAF checks and blind-inference oracles roll against player "Stealth" and "Insight" stats — keeps it D&D-flavored without being unfair (failures always teach something).
-
+**Dice / randomness:** WAF checks and blind-inference oracles roll against player "Stealth" and "Insight" stats — keeps it D&D-flavored without being unfair (failures always teach something). I like this.
 ---
 
 ## 5. Progression Structure
@@ -75,7 +74,7 @@ Final: Multi-class Dungeon (boss encounter requiring chained techniques)
 - **Levels** = curated, one correct-ish path, hints available.
 - **Sandbox** = same endpoint family, randomized schema/filters, no hints, leaderboard-friendly.
 
-> **Open question:** how many levels per chapter before sandbox unlocks — 3? 4? *(edit here)*
+> **Open question:** how many levels per chapter before sandbox unlocks — 3? 4? *(4)*
 
 ---
 
@@ -105,7 +104,7 @@ The current page is cyberpunk-neon (cyan/magenta on near-black, Share Tech Mono 
 - **Layout metaphor:** left panel = spellbook (payload components / discovered schema); center = "dungeon" node map; right panel = combat log / dice rolls.
 - **Motion:** parchment edges curl on hover; payloads "inscribe" character-by-character when cast; crit hits flash gold.
 
-> **Open question:** keep it fully text/parchment, or allow pixel-art sprites for nodes/bosses? *(edit here)*
+> **Open question:** keep it fully text/parchment, or allow pixel-art sprites for nodes/bosses? *(allow sprites)*
 
 ---
 

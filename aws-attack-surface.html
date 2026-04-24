@@ -3,1893 +3,692 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AWS Attack Surface Visualizer</title>
-<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+<title>SQLi Dungeon — AWS Attack Surface</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&family=IM+Fell+English&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0a0a0f;
-  --panel-bg: rgba(12, 12, 25, 0.85);
-  --panel-border: rgba(0, 200, 255, 0.25);
-  --accent: #00c8ff;
-  --accent2: #ff00aa;
-  --text: #c0c8e0;
-  --text-dim: #606880;
-  --slider-track: #1a1a2e;
-  --green: #00ff88;
-  --amber: #ffaa00;
-  --red: #ff3355;
+  /* Arcane terminal palette */
+  --ink:        #0C0C0A;
+  --ink-panel:  #141310;
+  --ink-raised: #1C1A14;
+  --parchment:  #E8DCC4;
+  --parchment-dim: #9A8F77;
+  --phosphor:   #7FFF9E;
+  --phosphor-dim: #3e8a55;
+  --amber:      #FFAA33;
+  --amber-dim:  #8a5a1a;
+  --blood:      #C8423C;
+  --gold:       #D4B968;
+  --rune:       #B39DDB;
+
+  --font-serif: 'Cinzel', 'IM Fell English', serif;
+  --font-lore:  'IM Fell English', serif;
+  --font-mono:  'IBM Plex Mono', monospace;
+
+  --border-rune: 1px solid rgba(127, 255, 158, 0.18);
+  --border-gold: 1px solid rgba(212, 185, 104, 0.28);
+  --glow-phosphor: 0 0 12px rgba(127, 255, 158, 0.25);
+  --glow-gold:     0 0 18px rgba(212, 185, 104, 0.35);
 }
 
+html, body { height: 100%; }
+
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'Share Tech Mono', monospace;
-  height: 100vh;
+  background:
+    radial-gradient(ellipse at top, rgba(127, 255, 158, 0.04), transparent 60%),
+    radial-gradient(ellipse at bottom, rgba(212, 185, 104, 0.03), transparent 60%),
+    var(--ink);
+  color: var(--parchment);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  height: 100vh;
+}
+
+/* Faint scanline overlay, old terminal feel */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0, transparent 2px,
+    rgba(127, 255, 158, 0.018) 2px, rgba(127, 255, 158, 0.018) 3px
+  );
 }
 
 /* ── Nav ── */
 #nav {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 0 20px;
-  height: 42px;
-  min-height: 42px;
-  background: rgba(8, 8, 18, 0.95);
-  border-bottom: 1px solid var(--panel-border);
+  display: flex; align-items: center; gap: 20px;
+  padding: 0 22px;
+  height: 44px; min-height: 44px;
+  background: rgba(8, 8, 6, 0.96);
+  border-bottom: var(--border-rune);
   z-index: 200;
 }
-#nav .nav-brand {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: 2px;
+#nav .brand {
+  font-family: var(--font-serif);
+  font-size: 13px; font-weight: 700;
+  color: var(--phosphor);
+  letter-spacing: 3px;
   text-transform: uppercase;
-  text-shadow: 0 0 12px rgba(0, 200, 255, 0.4);
+  text-shadow: var(--glow-phosphor);
 }
+#nav .brand .sigil { color: var(--gold); margin-right: 8px; }
 #nav a {
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--parchment-dim);
   text-decoration: none;
   padding: 4px 12px;
-  border-radius: 4px;
-  transition: all 0.15s;
+  border-radius: 2px;
+  letter-spacing: 1.5px;
+  transition: color 0.15s, background 0.15s;
+}
+#nav a:hover { color: var(--parchment); background: rgba(127, 255, 158, 0.06); }
+#nav a.active {
+  color: var(--phosphor);
+  background: rgba(127, 255, 158, 0.08);
+  border: 1px solid rgba(127, 255, 158, 0.2);
+}
+
+/* ── Stat bar ── */
+#stat-bar {
+  display: flex; align-items: center; gap: 28px;
+  padding: 0 22px;
+  height: 40px; min-height: 40px;
+  background: rgba(10, 10, 8, 0.85);
+  border-bottom: var(--border-gold);
+  font-family: var(--font-mono);
+  font-size: 11px;
   letter-spacing: 1px;
 }
-#nav a:hover { color: var(--text); background: rgba(255,255,255,0.04); }
-#nav a.active { color: var(--accent); background: rgba(0, 200, 255, 0.08); border: 1px solid rgba(0, 200, 255, 0.2); }
-
-/* ── Summary bar ── */
-#summary-bar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 0 20px;
-  height: 34px;
-  min-height: 34px;
-  background: rgba(8, 8, 18, 0.8);
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-  font-size: 11px;
-  color: var(--text-dim);
+.stat {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--parchment-dim);
 }
-#summary-bar span { color: var(--accent); }
-#summary-bar .threat-level { font-weight: 700; }
+.stat .label { text-transform: uppercase; letter-spacing: 2px; font-size: 10px; }
+.stat .value {
+  font-weight: 600;
+  color: var(--parchment);
+}
+.stat.hp .value     { color: var(--blood); }
+.stat.mp .value     { color: var(--rune); }
+.stat.xp .value     { color: var(--gold); }
+.stat.stealth .value { color: var(--phosphor); }
+.stat.insight .value { color: var(--amber); }
+
+.stat-bar-spacer { flex: 1; }
+
+#chapter-label {
+  font-family: var(--font-serif);
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: var(--gold);
+  text-transform: uppercase;
+}
 
 /* ── Main layout ── */
-#main {
+#game {
   flex: 1;
-  display: flex;
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  gap: 1px;
+  background: var(--border-rune);
   min-height: 0;
+  z-index: 2;
 }
 
-/* ── Left panel ── */
-#left-panel {
-  width: 270px;
-  min-width: 270px;
-  overflow-y: auto;
-  background: var(--panel-bg);
-  backdrop-filter: blur(16px);
-  border-right: 1px solid var(--panel-border);
-  padding: 16px 14px;
+.panel {
+  background: var(--ink-panel);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  scrollbar-width: thin;
-  scrollbar-color: #1a1a2e transparent;
-}
-#left-panel::-webkit-scrollbar { width: 4px; }
-#left-panel::-webkit-scrollbar-thumb { background: #1a1a2e; border-radius: 2px; }
-
-#left-panel h2 {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 12px;
-  color: var(--accent);
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  text-shadow: 0 0 14px rgba(0,200,255,0.4);
-  margin-bottom: 8px;
-  text-align: center;
-}
-
-.group {
-  background: rgba(255,255,255,0.02);
-  border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 8px;
-  padding: 10px 10px 6px;
-  margin-bottom: 4px;
-}
-.group-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--accent2);
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  margin-bottom: 8px;
-  padding-bottom: 5px;
-  border-bottom: 1px solid rgba(255,0,170,0.15);
-}
-.control { margin-bottom: 8px; }
-.control-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 3px;
-}
-.control-label {
-  font-size: 11px;
-  color: var(--text);
-  cursor: help;
-  position: relative;
-}
-.control-label .tip {
-  display: none;
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  width: 220px;
-  background: #12122a;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  padding: 7px 9px;
-  font-size: 10px;
-  color: var(--text);
-  line-height: 1.5;
-  z-index: 300;
-  box-shadow: 0 0 18px rgba(0,200,255,0.2);
-  pointer-events: none;
-}
-.control-label:hover .tip { display: block; }
-.control-value {
-  font-size: 11px;
-  color: var(--accent);
-  min-width: 28px;
-  text-align: right;
-}
-
-input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  background: var(--slider-track);
-  border-radius: 2px;
-  outline: none;
-}
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 13px; height: 13px;
-  border-radius: 50%;
-  background: var(--accent);
-  cursor: pointer;
-  box-shadow: 0 0 8px rgba(0,200,255,0.5);
-}
-input[type="range"]::-moz-range-thumb {
-  width: 13px; height: 13px;
-  border-radius: 50%;
-  background: var(--accent);
-  cursor: pointer;
-  border: none;
-  box-shadow: 0 0 8px rgba(0,200,255,0.5);
-}
-
-.action-row { display: flex; gap: 6px; margin-top: 4px; }
-.action-btn {
-  flex: 1;
-  padding: 8px 0;
-  font-family: 'Orbitron', sans-serif;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-  border: 1px solid;
-}
-.btn-play { background: rgba(0,200,255,0.1); color: var(--accent); border-color: var(--accent); }
-.btn-play:hover { background: rgba(0,200,255,0.2); box-shadow: 0 0 12px rgba(0,200,255,0.3); }
-.btn-reset { background: rgba(255,0,170,0.1); color: var(--accent2); border-color: var(--accent2); }
-.btn-reset:hover { background: rgba(255,0,170,0.2); box-shadow: 0 0 12px rgba(255,0,170,0.3); }
-.btn-export { background: rgba(0,255,136,0.08); color: var(--green); border-color: var(--green); }
-.btn-export:hover { background: rgba(0,255,136,0.15); box-shadow: 0 0 12px rgba(0,255,136,0.2); }
-
-/* Filter buttons */
-.filter-row { display: flex; flex-wrap: wrap; gap: 4px; }
-.filter-btn {
-  padding: 3px 7px;
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 9px;
-  background: rgba(255,255,255,0.04);
-  color: var(--text-dim);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.filter-btn.active {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(0,200,255,0.08);
-}
-.filter-btn:hover { border-color: rgba(0,200,255,0.3); }
-
-/* ── Center ── */
-#center {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  position: relative;
-}
-
-#canvas-wrap {
-  flex: 1;
-  position: relative;
   min-height: 0;
-}
-canvas#graph {
-  display: block;
-  width: 100%;
-  height: 100%;
-  cursor: crosshair;
-}
-
-/* Legend (inline in summary bar) */
-.risk-legend-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-#legend-gradient {
-  width: 140px;
-  height: 8px;
-  border-radius: 3px;
-  vertical-align: middle;
-}
-.legend-labels-inline {
-  display: inline-flex;
-  gap: 4px;
-  font-size: 9px;
-  color: var(--text-dim);
-}
-.legend-labels-inline span:first-child { color: var(--accent); }
-.legend-labels-inline span:last-child { color: var(--red); }
-
-/* Timeline */
-#timeline {
-  height: 50px;
-  min-height: 50px;
-  background: rgba(8,8,18,0.9);
-  border-top: 1px solid rgba(255,255,255,0.05);
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 10px;
-}
-#timeline .tl-btn {
-  background: none;
-  border: 1px solid rgba(255,255,255,0.1);
-  color: var(--text-dim);
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 14px;
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.12s;
-}
-#timeline .tl-btn:hover { color: var(--accent); border-color: var(--accent); }
-#timeline .tl-btn.active { color: var(--accent); border-color: var(--accent); }
-
-#tl-scrubber-wrap {
-  flex: 1;
-  height: 6px;
-  background: var(--slider-track);
-  border-radius: 3px;
-  position: relative;
-  cursor: pointer;
-}
-#tl-progress {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--accent2));
-  border-radius: 3px;
-  width: 0%;
-  pointer-events: none;
-}
-#tl-handle {
-  position: absolute;
-  top: 50%;
-  left: 0%;
-  width: 14px;
-  height: 14px;
-  background: var(--accent);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 8px rgba(0,200,255,0.5);
-  cursor: grab;
-  z-index: 10;
-}
-
-#tl-info {
-  font-size: 10px;
-  color: var(--text-dim);
-  min-width: 120px;
-  text-align: right;
-}
-#tl-info span { color: var(--accent); }
-
-/* ── Right panel ── */
-#right-panel {
-  width: 300px;
-  min-width: 300px;
-  display: flex;
-  flex-direction: column;
-  background: var(--panel-bg);
-  backdrop-filter: blur(16px);
-  border-left: 1px solid var(--panel-border);
-}
-
-/* Tab bar */
-#right-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--panel-border);
-  min-height: 34px;
-}
-.right-tab {
-  flex: 1;
-  padding: 8px 0;
-  font-family: 'Orbitron', sans-serif;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  text-align: center;
-  color: var(--text-dim);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.right-tab:hover { color: var(--text); background: rgba(255,255,255,0.02); }
-.right-tab.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(0,200,255,0.04); }
-.right-tab.has-alert { color: var(--red); }
-.right-tab.has-alert::after { content: ' ●'; font-size: 7px; }
-
-/* Tab pages (fill remaining space) */
-.tab-page {
-  flex: 1;
-  overflow-y: auto;
-  padding: 14px;
-  display: none;
-  min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: #1a1a2e transparent;
-}
-.tab-page::-webkit-scrollbar { width: 4px; }
-.tab-page::-webkit-scrollbar-thumb { background: #1a1a2e; border-radius: 2px; }
-.tab-page.active { display: flex; flex-direction: column; }
-
-.detail-placeholder {
-  color: var(--text-dim);
-  font-size: 11px;
-  text-align: center;
-  padding: 40px 10px;
-  line-height: 1.6;
-}
-
-.detail-content { display: none; }
-.detail-content.visible { display: block; }
-
-.detail-name {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 13px;
-  color: #fff;
-  margin-bottom: 2px;
-}
-.detail-type {
-  font-size: 10px;
-  color: var(--accent2);
-  margin-bottom: 12px;
-}
-.detail-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
-}
-.detail-row .label { color: var(--text-dim); }
-
-.badge {
-  font-size: 9px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-.badge-none { background: rgba(100,100,140,0.2); color: #888; }
-.badge-low { background: rgba(0,200,255,0.15); color: var(--accent); }
-.badge-medium { background: rgba(255,170,0,0.15); color: var(--amber); }
-.badge-high { background: rgba(255,0,170,0.15); color: var(--accent2); }
-.badge-critical { background: rgba(255,50,80,0.2); color: var(--red); }
-
-.vuln-list { margin: 10px 0; }
-.vuln-item {
-  font-size: 10px;
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  background: rgba(255,255,255,0.02);
-  border-radius: 4px;
-  border-left: 2px solid;
-  line-height: 1.5;
-}
-.vuln-item.sev-low { border-color: var(--accent); }
-.vuln-item.sev-medium { border-color: var(--amber); }
-.vuln-item.sev-high { border-color: var(--accent2); }
-.vuln-item.sev-critical { border-color: var(--red); }
-
-.mitigations {
-  margin: 10px 0;
-  font-size: 10px;
-  line-height: 1.6;
-  color: var(--text-dim);
-}
-.mitigations li { margin-bottom: 4px; list-style: none; }
-.mitigations li::before { content: "→ "; color: var(--green); }
-
-.btn-patch {
-  width: 100%;
-  padding: 10px;
-  font-family: 'Orbitron', sans-serif;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  background: rgba(0,255,136,0.1);
-  color: var(--green);
-  border: 1px solid var(--green);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-  margin-top: 8px;
-}
-.btn-patch:hover { background: rgba(0,255,136,0.2); box-shadow: 0 0 14px rgba(0,255,136,0.25); }
-.btn-patch:disabled { opacity: 0.3; cursor: default; box-shadow: none; }
-
-/* Risk breakdown bar */
-.risk-bar-wrap {
-  margin: 8px 0;
-}
-.risk-bar {
-  display: flex;
-  height: 8px;
-  border-radius: 4px;
   overflow: hidden;
-  margin-top: 4px;
 }
-.risk-bar div { height: 100%; }
-.risk-bar .seg-sev { background: var(--red); }
-.risk-bar .seg-exp { background: var(--amber); }
-.risk-bar .seg-val { background: var(--accent); }
-.risk-bar-labels {
+
+.panel-head {
+  padding: 10px 14px;
+  font-family: var(--font-serif);
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--phosphor);
+  border-bottom: var(--border-rune);
+  background: rgba(127, 255, 158, 0.03);
+}
+
+.panel-body {
+  flex: 1;
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+/* Spellbook (left) */
+#spellbook .tab-row {
   display: flex;
-  justify-content: space-between;
-  font-size: 8px;
-  color: var(--text-dim);
-  margin-top: 3px;
+  border-bottom: var(--border-rune);
 }
-
-
-.log-entry {
+#spellbook .tab {
+  flex: 1;
+  padding: 8px;
   font-size: 10px;
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.02);
-  line-height: 1.5;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--parchment-dim);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-mono);
+  border-bottom: 2px solid transparent;
 }
-.log-entry .log-time { color: var(--text-dim); }
-.log-entry.log-info { color: var(--accent); }
-.log-entry.log-warn { color: var(--amber); }
-.log-entry.log-crit { color: var(--red); }
-.log-entry.log-good { color: var(--green); }
+#spellbook .tab.active {
+  color: var(--phosphor);
+  border-bottom-color: var(--phosphor);
+}
+#spellbook .token {
+  display: inline-block;
+  padding: 4px 8px;
+  margin: 3px 4px 3px 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--phosphor);
+  background: rgba(127, 255, 158, 0.06);
+  border: 1px solid rgba(127, 255, 158, 0.25);
+  border-radius: 2px;
+  cursor: pointer;
+  user-select: none;
+}
+#spellbook .token:hover { background: rgba(127, 255, 158, 0.14); }
+#spellbook .token.locked {
+  color: var(--parchment-dim);
+  background: transparent;
+  border-color: rgba(154, 143, 119, 0.2);
+  cursor: not-allowed;
+}
+
+/* Dungeon (center) */
+#dungeon {
+  position: relative;
+  background:
+    radial-gradient(ellipse at center, rgba(212, 185, 104, 0.04), transparent 70%),
+    var(--ink-panel);
+}
+#dungeon-canvas {
+  position: absolute; inset: 0;
+  display: block;
+}
+#node-detail {
+  position: absolute;
+  right: 12px; top: 12px;
+  width: 280px;
+  padding: 12px;
+  background: rgba(20, 19, 16, 0.96);
+  border: var(--border-gold);
+  border-radius: 2px;
+  font-size: 12px;
+  display: none;
+  z-index: 5;
+}
+#node-detail.show { display: block; }
+#node-detail h4 {
+  font-family: var(--font-serif);
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+#node-detail .kv { display: flex; justify-content: space-between; padding: 3px 0; color: var(--parchment-dim); }
+#node-detail .kv b { color: var(--parchment); font-weight: 500; }
+
+/* Combat log (right) */
+#combat-log .log-body { font-size: 12px; }
+.log-entry {
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(154, 143, 119, 0.15);
+  color: var(--parchment-dim);
+}
+.log-entry .ts {
+  color: var(--phosphor-dim);
+  font-size: 10px;
+  margin-right: 8px;
+}
+.log-entry.crit  { color: var(--gold); text-shadow: var(--glow-gold); }
+.log-entry.hit   { color: var(--parchment); }
+.log-entry.miss  { color: var(--amber); }
+.log-entry.lore  { color: var(--rune); font-family: var(--font-lore); font-style: italic; }
+.log-entry.fail  { color: var(--blood); }
+
+/* ── Phase bar (footer) ── */
+#phase-bar {
+  display: flex; align-items: center;
+  height: 52px; min-height: 52px;
+  padding: 0 22px;
+  gap: 14px;
+  background: rgba(8, 8, 6, 0.94);
+  border-top: var(--border-gold);
+  z-index: 3;
+}
+.phase-pill {
+  font-family: var(--font-serif);
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border: 1px solid rgba(154, 143, 119, 0.3);
+  color: var(--parchment-dim);
+  border-radius: 2px;
+  background: transparent;
+}
+.phase-pill.active {
+  color: var(--ink);
+  background: var(--phosphor);
+  border-color: var(--phosphor);
+  box-shadow: var(--glow-phosphor);
+}
+.phase-pill.done {
+  color: var(--phosphor-dim);
+  border-color: var(--phosphor-dim);
+}
+.phase-sep { color: var(--parchment-dim); font-size: 14px; }
+
+.phase-spacer { flex: 1; }
+
+button.arcane {
+  font-family: var(--font-serif);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--gold);
+  border: var(--border-gold);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+button.arcane:hover {
+  background: rgba(212, 185, 104, 0.1);
+  box-shadow: var(--glow-gold);
+}
+button.arcane.primary {
+  color: var(--ink);
+  background: var(--phosphor);
+  border-color: var(--phosphor);
+}
+button.arcane.primary:hover {
+  background: #a8ffc0;
+  box-shadow: var(--glow-phosphor);
+}
+button.arcane:disabled {
+  opacity: 0.35; cursor: not-allowed; box-shadow: none;
+}
+
+/* ── Modal ── */
+#modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: none;
+  align-items: center; justify-content: center;
+  z-index: 500;
+}
+#modal-overlay.show { display: flex; }
+.modal {
+  width: min(720px, 90vw);
+  max-height: 80vh;
+  background: var(--ink-panel);
+  border: 1px solid var(--gold);
+  border-radius: 3px;
+  box-shadow: var(--glow-gold);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.modal-head {
+  padding: 14px 20px;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--gold);
+  border-bottom: var(--border-gold);
+}
+.modal-body { padding: 20px; overflow-y: auto; font-size: 13px; }
+.modal-foot {
+  padding: 12px 20px;
+  border-top: var(--border-gold);
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+
+/* Defense card */
+.defense-card h3 {
+  font-family: var(--font-serif);
+  color: var(--phosphor); letter-spacing: 2px;
+  margin-bottom: 10px;
+}
+.defense-card pre {
+  background: var(--ink-raised);
+  padding: 10px;
+  border-left: 2px solid var(--phosphor);
+  margin: 10px 0;
+  font-size: 12px;
+  overflow-x: auto;
+  color: var(--parchment);
+}
+.defense-card .tip {
+  color: var(--amber); margin-top: 10px;
+  font-family: var(--font-lore); font-style: italic;
+}
+
+/* Utility */
+.mono { font-family: var(--font-mono); }
+.serif { font-family: var(--font-serif); }
+.dim  { color: var(--parchment-dim); }
+.hint {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 170, 51, 0.06);
+  border-left: 2px solid var(--amber);
+  color: var(--amber);
+  font-family: var(--font-lore);
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--ink); }
+::-webkit-scrollbar-thumb { background: rgba(127, 255, 158, 0.15); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(127, 255, 158, 0.3); }
 </style>
 </head>
 <body>
 
-<!-- Nav -->
 <nav id="nav">
-  <div class="nav-brand">CyberSim</div>
-  <a href="neural-heatmap.html">Neural Heatmap</a>
-  <a href="aws-attack-surface.html" class="active">Attack Surface</a>
-  <a href="tutorial-neural.html">How It Works: Neural</a>
-  <a href="tutorial-aws.html">How It Works: AWS</a>
+  <span class="brand"><span class="sigil">❦</span>SQLi Dungeon</span>
+  <a href="index.html">Neural Heatmap</a>
+  <a href="aws-attack-surface.html" class="active">Dungeon</a>
+  <a href="tutorial-aws.html">Tutorial</a>
+  <a href="tutorial-neural.html">Neural Tutorial</a>
 </nav>
 
-<!-- Summary bar -->
-<div id="summary-bar">
-  Nodes: <span id="sum-total">0</span> &nbsp;|&nbsp;
-  Compromised: <span id="sum-comp">0%</span> &nbsp;|&nbsp;
-  Patched: <span id="sum-patched">0%</span> &nbsp;|&nbsp;
-  Threat Level: <span id="sum-threat" class="threat-level">LOW</span>
-  &nbsp;|&nbsp;
-  <span class="risk-legend-inline">
-    <span style="color:var(--text-dim)">Risk:</span>
-    <canvas id="legend-gradient" width="140" height="10"></canvas>
-    <span class="legend-labels-inline"><span>Safe</span><span>Critical</span></span>
-  </span>
+<div id="stat-bar">
+  <div class="stat hp"><span class="label">HP</span><span class="value" id="stat-hp">20/20</span></div>
+  <div class="stat mp"><span class="label">MP</span><span class="value" id="stat-mp">10/10</span></div>
+  <div class="stat xp"><span class="label">XP</span><span class="value" id="stat-xp">0</span></div>
+  <div class="stat stealth"><span class="label">Stealth</span><span class="value" id="stat-stealth">10</span></div>
+  <div class="stat insight"><span class="label">Insight</span><span class="value" id="stat-insight">10</span></div>
+  <div class="stat-bar-spacer"></div>
+  <div id="chapter-label">Chapter 0 — Prologue</div>
 </div>
 
-<div id="main">
-
-  <!-- Left Panel — Controls -->
-  <div id="left-panel">
-    <h2>Controls</h2>
-    <a href="tutorial-aws.html" style="display:block;text-align:center;font-size:10px;color:var(--accent);text-decoration:none;padding:4px 0 10px;opacity:0.7;transition:opacity 0.15s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">Learn How This Works &rarr;</a>
-
-    <div class="group">
-      <div class="group-title">Threat Simulation</div>
-      <div class="control">
-        <div class="control-header">
-          <div class="control-label">Threat Aggression
-            <div class="tip">Controls how quickly a threat spreads from a compromised node to its neighbors. Higher values simulate a fast-moving, automated attack.</div>
-          </div>
-          <div class="control-value" id="v-aggression">0.40</div>
+<main id="game">
+  <aside class="panel" id="spellbook">
+    <div class="panel-head">Spellbook</div>
+    <div class="tab-row">
+      <button class="tab active" data-tab="tokens">Tokens</button>
+      <button class="tab" data-tab="schema">Schema</button>
+      <button class="tab" data-tab="stats">Stats</button>
+    </div>
+    <div class="panel-body">
+      <div class="tab-pane" data-pane="tokens">
+        <div class="dim" style="margin-bottom:8px; font-size:11px;">Click a token to append to your payload.</div>
+        <div id="token-list">
+          <span class="token locked" title="Locked — earn in Chapter 1">'  (string quote)</span>
+          <span class="token locked">OR</span>
+          <span class="token locked">--</span>
+          <span class="token locked">UNION SELECT</span>
         </div>
-        <input type="range" id="c-aggression" min="0" max="1" value="0.4" step="0.01">
       </div>
-      <div class="control">
-        <div class="control-header">
-          <div class="control-label">Spawn Rate
-            <div class="tip">How many new threat entry points appear per tick. Higher values create more simultaneous attack vectors.</div>
-          </div>
-          <div class="control-value" id="v-spawnrate">1</div>
-        </div>
-        <input type="range" id="c-spawnrate" min="1" max="10" value="1" step="1">
+      <div class="tab-pane" data-pane="schema" style="display:none;">
+        <div class="dim">No schema discovered. Probe an endpoint to reveal tables.</div>
       </div>
-      <div class="control">
-        <div class="control-header">
-          <div class="control-label">Patch Effectiveness
-            <div class="tip">How well patching reduces a node's risk score. Higher values make patches more impactful at stopping threat progression.</div>
-          </div>
-          <div class="control-value" id="v-patcheff">0.80</div>
-        </div>
-        <input type="range" id="c-patcheff" min="0" max="1" value="0.8" step="0.01">
+      <div class="tab-pane" data-pane="stats" style="display:none;">
+        <div class="dim" style="font-size:11px; margin-bottom:8px;">How to grow:</div>
+        <ul style="list-style:none; font-size:12px; line-height:1.8;">
+          <li><b class="mono">HP</b> — full heal between chapters. +2 max per chapter cleared.</li>
+          <li><b class="mono">MP</b> — regen 1/turn in Recon. +1 max per sandbox cleared.</li>
+          <li><b class="mono">XP</b> — +10 per level, +25 per sandbox, +50 per boss.</li>
+          <li><b class="mono">Stealth</b> — +1 at levels 5, 15, 30. Reduces WAF detection.</li>
+          <li><b class="mono">Insight</b> — +1 at levels 10, 20, 40. Better blind-inference rolls.</li>
+        </ul>
       </div>
     </div>
+  </aside>
 
-    <div class="group">
-      <div class="group-title">Environment</div>
-      <div class="control">
-        <div class="control-header">
-          <div class="control-label">Asset Count
-            <div class="tip">Total number of AWS service nodes to generate. More nodes create a larger, more complex attack surface.</div>
-          </div>
-          <div class="control-value" id="v-assets">40</div>
-        </div>
-        <input type="range" id="c-assets" min="20" max="80" value="40" step="1">
-      </div>
-      <div class="control">
-        <div class="control-header">
-          <div class="control-label">Edge Density
-            <div class="tip">How densely connected the infrastructure graph is. Sparse = isolated services, Dense = many interconnections enabling lateral movement.</div>
-          </div>
-          <div class="control-value" id="v-density">0.40</div>
-        </div>
-        <input type="range" id="c-density" min="0.1" max="1" value="0.4" step="0.01">
-      </div>
-      <div class="control">
-        <div class="control-header">
-          <div class="control-label">Message Rate
-            <div class="tip">How frequently transient SNS/SQS messages pop up on edges. Higher values create more message traffic between nodes.</div>
-          </div>
-          <div class="control-value" id="v-msgrate">3</div>
-        </div>
-        <input type="range" id="c-msgrate" min="0" max="10" value="3" step="1">
-      </div>
-      <div class="control">
-        <div class="control-header">
-          <div class="control-label">Message Lifespan
-            <div class="tip">How many ticks a transient message stays before expiring. Threat messages that expire unhandled may trigger recon on nearby nodes.</div>
-          </div>
-          <div class="control-value" id="v-msglife">8</div>
-        </div>
-        <input type="range" id="c-msglife" min="3" max="20" value="8" step="1">
+  <section class="panel" id="dungeon">
+    <div class="panel-head">Dungeon Map</div>
+    <div class="panel-body" style="padding:0; position:relative;">
+      <canvas id="dungeon-canvas"></canvas>
+      <div id="node-detail">
+        <h4 id="nd-name">—</h4>
+        <div class="kv"><span>endpoint</span><b id="nd-endpoint">—</b></div>
+        <div class="kv"><span>vuln class</span><b id="nd-vuln">—</b></div>
+        <div class="kv"><span>status</span><b id="nd-status">—</b></div>
       </div>
     </div>
+  </section>
 
-    <div class="group">
-      <div class="group-title">Simulation</div>
-      <div class="control">
-        <div class="control-header">
-          <div class="control-label">Tick Speed
-            <div class="tip">How many simulation ticks run per second. Faster speeds accelerate the attack timeline.</div>
-          </div>
-          <div class="control-value" id="v-tickspeed">4</div>
-        </div>
-        <input type="range" id="c-tickspeed" min="1" max="20" value="4" step="1">
-      </div>
-      <div class="action-row">
-        <button class="action-btn btn-play" id="btn-play" onclick="togglePause()">Pause</button>
-        <button class="action-btn btn-reset" onclick="regenerate()">Regenerate</button>
-      </div>
-      <div class="action-row" style="margin-top:6px">
-        <button class="action-btn btn-export" onclick="exportJSON()">Export JSON</button>
+  <aside class="panel" id="combat-log">
+    <div class="panel-head">Combat Log</div>
+    <div class="panel-body">
+      <div class="log-body" id="log-body">
+        <div class="log-entry lore"><span class="ts">0001</span>The gate hums. Somewhere a query waits to be malformed.</div>
       </div>
     </div>
+  </aside>
+</main>
 
-    <div class="group">
-      <div class="group-title">Filter by Type</div>
-      <div class="filter-row" id="filter-row"></div>
+<div id="phase-bar">
+  <button class="phase-pill active" id="phase-recon">Recon</button>
+  <span class="phase-sep">▸</span>
+  <button class="phase-pill" id="phase-craft">Craft</button>
+  <span class="phase-sep">▸</span>
+  <button class="phase-pill" id="phase-cast">Cast</button>
+  <span class="phase-sep">▸</span>
+  <button class="phase-pill" id="phase-loot">Loot</button>
+  <div class="phase-spacer"></div>
+  <button class="arcane" id="btn-hint">Hint</button>
+  <button class="arcane" id="btn-cheatsheet">Cheatsheet</button>
+  <button class="arcane primary" id="btn-advance">Begin</button>
+</div>
+
+<div id="modal-overlay">
+  <div class="modal">
+    <div class="modal-head" id="modal-title">—</div>
+    <div class="modal-body" id="modal-body">—</div>
+    <div class="modal-foot">
+      <button class="arcane" id="modal-close">Close</button>
     </div>
   </div>
-
-  <!-- Center — Canvas + Timeline -->
-  <div id="center">
-    <div id="canvas-wrap">
-      <canvas id="graph"></canvas>
-    </div>
-    <div id="timeline">
-      <button class="tl-btn" onclick="stepBack()" title="Step Back">&#9664;&#9664;</button>
-      <button class="tl-btn" id="tl-play" onclick="togglePause()" title="Play/Pause">&#10074;&#10074;</button>
-      <button class="tl-btn" onclick="stepForward()" title="Step Forward">&#9654;&#9654;</button>
-      <div id="tl-scrubber-wrap">
-        <div id="tl-progress"></div>
-        <div id="tl-handle"></div>
-      </div>
-      <div id="tl-info">Tick: <span id="tl-tick">0</span> &nbsp; <span id="tl-time">00:00</span></div>
-    </div>
-  </div>
-
-  <!-- Right Panel -->
-  <div id="right-panel">
-    <div id="right-tabs">
-      <button class="right-tab active" data-tab="detail" onclick="switchTab('detail')">Node Detail</button>
-      <button class="right-tab" data-tab="feed" onclick="switchTab('feed')">Threat Feed</button>
-    </div>
-    <div id="detail-drawer" class="tab-page active">
-      <div class="detail-placeholder" id="detail-placeholder">Click a node on the graph to inspect its properties, vulnerabilities, and threat status.</div>
-      <div class="detail-content" id="detail-content"></div>
-    </div>
-    <div id="alert-log" class="tab-page">
-      <div id="log-entries"></div>
-    </div>
-  </div>
-
 </div>
 
 <script>
-// ══════════════════════════════════════════════════════════════
-//  AWS ATTACK SURFACE VISUALIZER — Simulation Engine
-// ══════════════════════════════════════════════════════════════
+/* ==========================================================================
+   SQLi Dungeon — core shell
+   Scaffold only. Turn engine, node graph, and chapter data land in follow-up.
+   ========================================================================== */
 
-const canvas = document.getElementById('graph');
-const ctx = canvas.getContext('2d');
+const SAVE_KEY = 'sqli-dungeon.save.v1';
 
-// ── Config ──
-let cfg = {
-  aggression: 0.4,
-  spawnRate: 1,
-  patchEff: 0.8,
-  assetCount: 40,
-  edgeDensity: 0.4,
-  tickSpeed: 4,
-  msgRate: 3,    // transient message spawn chance per tick (1-10)
-  msgLifespan: 8, // ticks before a message completes or fails
+const PHASES = ['recon', 'craft', 'cast', 'loot'];
+
+const DEFAULT_STATE = {
+  chapter: 0, level: 0,           // 0 = prologue
+  phase: 'recon',
+  hp: 20, hpMax: 20,
+  mp: 10, mpMax: 10,
+  xp: 0,
+  stealth: 10, insight: 10,
+  inventory: [],                  // unlocked payload tokens
+  schema: {},                     // discovered tables per endpoint
+  payload: '',                    // currently-crafted payload string
+  unlockedChapters: [1],
+  clearedLevels: {},              // { "1.1": true, ... }
+  sandboxCleared: {},             // { "1": true }
+  flags: { tutorialSeen: false },
 };
-let paused = false;
 
-// ── AWS Service Templates ──
-const SERVICE_TYPES = [
-  { type: 'EC2',         category: 'Compute',   icon: '⬡', baseExposure: 'Internal',   baseValue: 'Medium', prefix: 'ec2' },
-  { type: 'Lambda',      category: 'Compute',   icon: 'λ', baseExposure: 'Internal',   baseValue: 'Medium', prefix: 'lambda' },
-  { type: 'ECS',         category: 'Compute',   icon: '◎', baseExposure: 'Internal',   baseValue: 'Medium', prefix: 'ecs' },
-  { type: 'S3',          category: 'Storage',   icon: '◈', baseExposure: 'Internet',   baseValue: 'High',   prefix: 's3' },
-  { type: 'RDS',         category: 'Storage',   icon: '⬢', baseExposure: 'Internal',   baseValue: 'Critical', prefix: 'rds' },
-  { type: 'DynamoDB',    category: 'Storage',   icon: '◆', baseExposure: 'Internal',   baseValue: 'High',   prefix: 'dynamo' },
-  { type: 'VPC',         category: 'Network',   icon: '◇', baseExposure: 'Internal',   baseValue: 'Low',    prefix: 'vpc' },
-  { type: 'CloudFront',  category: 'Network',   icon: '◬', baseExposure: 'Internet',   baseValue: 'Medium', prefix: 'cf' },
-  { type: 'API Gateway', category: 'Network',   icon: '⊞', baseExposure: 'Internet',   baseValue: 'High',   prefix: 'apigw' },
-  { type: 'SecurityGroup', category: 'Network', icon: '⊡', baseExposure: 'Internal',   baseValue: 'Low',    prefix: 'sg' },
-  { type: 'IAM Role',    category: 'Identity',  icon: '⚿', baseExposure: 'Public',     baseValue: 'Critical', prefix: 'iam-role' },
-  { type: 'IAM User',    category: 'Identity',  icon: '⚷', baseExposure: 'Public',     baseValue: 'Critical', prefix: 'iam-user' },
-];
+let state = loadState();
 
-// Transient node templates (pop-up messages between nodes)
-const TRANSIENT_TYPES = [
-  { type: 'SNS',  category: 'Message', icon: '✉', prefix: 'sns' },
-  { type: 'SQS',  category: 'Message', icon: '☰', prefix: 'sqs' },
-];
-
-const EXPOSURE_LEVELS = ['Internal', 'Public', 'Internet'];
-const VALUE_LEVELS   = ['Low', 'Medium', 'High', 'Critical'];
-const SEV_LEVELS     = ['None', 'Low', 'Medium', 'High', 'Critical'];
-const THREAT_PHASES  = ['safe', 'recon', 'exploit', 'compromised'];
-
-const VULN_TEMPLATES = [
-  { sev: 'Critical', text: 'CVE-2024-{N}: Remote code execution via deserialization flaw' },
-  { sev: 'Critical', text: 'CVE-2024-{N}: Misconfigured bucket policy allows public write' },
-  { sev: 'Critical', text: 'CVE-2024-{N}: Privilege escalation through IAM policy misconfiguration' },
-  { sev: 'High',     text: 'CVE-2024-{N}: Server-Side Request Forgery in metadata endpoint' },
-  { sev: 'High',     text: 'CVE-2024-{N}: Unencrypted data at rest in storage layer' },
-  { sev: 'High',     text: 'CVE-2024-{N}: SQL injection in parameterized query bypass' },
-  { sev: 'Medium',   text: 'CVE-2024-{N}: Verbose error messages leak internal paths' },
-  { sev: 'Medium',   text: 'CVE-2024-{N}: Missing rate limiting on authentication endpoint' },
-  { sev: 'Medium',   text: 'CVE-2024-{N}: Cross-Origin Resource Sharing misconfiguration' },
-  { sev: 'Low',      text: 'CVE-2024-{N}: HTTP headers missing security directives' },
-  { sev: 'Low',      text: 'CVE-2024-{N}: TLS certificate approaching expiry (30 days)' },
-  { sev: 'Low',      text: 'CVE-2024-{N}: Outdated SDK version with known low-severity issue' },
-];
-
-const MITIGATION_TEMPLATES = [
-  'Restrict security group ingress to trusted CIDR blocks only',
-  'Enable encryption at rest using AWS KMS managed keys',
-  'Apply least-privilege IAM policies; remove wildcard permissions',
-  'Enable VPC Flow Logs and route to CloudWatch for monitoring',
-  'Enable MFA on all IAM user accounts',
-  'Rotate access keys and enforce a 90-day rotation policy',
-  'Enable AWS GuardDuty for anomaly and threat detection',
-  'Update to the latest patched AMI/runtime version',
-  'Configure S3 Block Public Access at the account level',
-  'Enable WAF rules on API Gateway to filter malicious payloads',
-  'Implement network segmentation with private subnets',
-  'Enable CloudTrail logging across all regions',
-];
-
-const NAMES_ADJ = ['prod','staging','dev','internal','public','shared','core','edge','primary','backup','legacy'];
-const NAMES_NOUN = ['web-server','app-server','api','assets','media','logs','auth','analytics','worker','cache','gateway','database','users','admin','config','events','queue','cluster'];
-
-// ── Data Structures ──
-let nodes = [];
-let edges = [];
-let transientNodes = []; // temporary SNS/SQS pop-up nodes
-let transientIdCounter = 0;
-let history = [];   // array of snapshots
-let currentTick = 0;
-let viewTick = -1;  // -1 = live view
-let selectedNodeId = null;
-let activeFilters = new Set();
-let logEntries = [];
-let cveCounter = 1000;
-
-
-// ── Generate Environment ──
-function randomChoice(arr) { return arr[Math.random() * arr.length | 0]; }
-function randomInt(a, b) { return a + (Math.random() * (b - a + 1) | 0); }
-
-function generateName(template) {
-  return `${template.prefix}-${randomChoice(NAMES_ADJ)}-${randomChoice(NAMES_NOUN)}-${randomInt(1,99).toString().padStart(2,'0')}`;
-}
-
-function valToNum(val) { return VALUE_LEVELS.indexOf(val); }
-function expToNum(exp) { return EXPOSURE_LEVELS.indexOf(exp); }
-function sevToNum(sev) { return SEV_LEVELS.indexOf(sev); }
-
-function computeRisk(node) {
-  const sevScore = sevToNum(node.vulnSeverity) / 4;
-  const expScore = expToNum(node.exposure) / 2;
-  const valScore = valToNum(node.assetValue) / 3;
-  return Math.min(100, Math.round((sevScore * 40 + expScore * 35 + valScore * 25) * (node.patched ? (1 - cfg.patchEff) : 1)));
-}
-
-function generateVulns(count) {
-  const vulns = [];
-  const used = new Set();
-  for (let i = 0; i < count; i++) {
-    let t;
-    do { t = randomChoice(VULN_TEMPLATES); } while (used.has(t.text) && used.size < VULN_TEMPLATES.length);
-    used.add(t.text);
-    vulns.push({ sev: t.sev, text: t.text.replace('{N}', ++cveCounter) });
-  }
-  return vulns;
-}
-
-function generateGraph() {
-  nodes = [];
-  edges = [];
-  transientNodes = [];
-  transientIdCounter = 0;
-  history = [];
-  logEntries = [];
-  currentTick = 0;
-  viewTick = -1;
-  selectedNodeId = null;
-  cveCounter = 1000 + randomInt(0, 8000);
-
-  const N = cfg.assetCount;
-  const w = canvas.width;
-  const h = canvas.height;
-
-  // Build grid — one node per cell, guaranteed no overlap
-  const pad = 50;
-  const usableW = w - pad * 2;
-  const usableH = h - pad * 2;
-  const cols = Math.floor(Math.sqrt(N * (usableW / usableH)));
-  const rows = Math.ceil(N / cols);
-  const cellW = usableW / cols;
-  const cellH = usableH / rows;
-
-  // Create all grid positions and shuffle for random placement
-  const gridSlots = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      gridSlots.push({
-        x: pad + cellW * (c + 0.5),
-        y: pad + cellH * (r + 0.5),
-      });
-    }
-  }
-  const shuffledSlots = shuffle(gridSlots).slice(0, N);
-
-  // Generate nodes
-  for (let i = 0; i < N; i++) {
-    const template = randomChoice(SERVICE_TYPES);
-    const exposure = Math.random() < 0.3 ? randomChoice(EXPOSURE_LEVELS) : template.baseExposure;
-    const assetValue = Math.random() < 0.2 ? randomChoice(VALUE_LEVELS) : template.baseValue;
-    const vulnCount = randomInt(0, 3);
-    const vulns = generateVulns(vulnCount);
-    const worstSev = vulns.length ? vulns.reduce((a, b) => sevToNum(a.sev) > sevToNum(b.sev) ? a : b).sev : 'None';
-
-    nodes.push({
-      id: i,
-      name: generateName(template),
-      serviceType: template.type,
-      category: template.category,
-      icon: template.icon,
-      exposure,
-      assetValue,
-      vulns,
-      vulnSeverity: worstSev,
-      riskScore: 0,
-      threatPhase: 'safe',
-      threatTick: -1,
-      patched: false,
-      mitigations: shuffle(MITIGATION_TEMPLATES).slice(0, randomInt(2, 3)),
-      x: shuffledSlots[i].x,
-      y: shuffledSlots[i].y,
-      radius: 18,
-    });
-  }
-
-  // Compute initial risk
-  nodes.forEach(n => n.riskScore = computeRisk(n));
-
-  // Generate edges: ensure connectivity then add extras based on density
-  // Spanning tree first
-  const order = shuffle([...Array(N).keys()]);
-  for (let i = 1; i < N; i++) {
-    edges.push({ source: order[i - 1], target: order[i] });
-  }
-
-  // Extra edges based on density
-  const maxExtra = Math.round(N * cfg.edgeDensity * 1.5);
-  const edgeSet = new Set(edges.map(e => edgeKey(e.source, e.target)));
-  for (let i = 0; i < maxExtra; i++) {
-    const a = randomInt(0, N - 1);
-    const b = randomInt(0, N - 1);
-    if (a !== b) {
-      const key = edgeKey(a, b);
-      if (!edgeSet.has(key)) {
-        edgeSet.add(key);
-        edges.push({ source: a, target: b });
-      }
-    }
-  }
-
-  // Build adjacency
-  buildAdjacency();
-
-  // Snapshot initial state
-  saveSnapshot();
-  updateFilters();
-  updateSummary();
-  clearDetail();
-  renderLog();
-}
-
-function edgeKey(a, b) { return Math.min(a, b) + ':' + Math.max(a, b); }
-
-let adjacency = {};
-function buildAdjacency() {
-  adjacency = {};
-  nodes.forEach(n => adjacency[n.id] = []);
-  edges.forEach(e => {
-    adjacency[e.source].push(e.target);
-    adjacency[e.target].push(e.source);
-  });
-}
-
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.random() * (i + 1) | 0;
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-// ── Snapshot for timeline ──
-function saveSnapshot() {
-  history.push({
-    tick: currentTick,
-    nodes: nodes.map(n => ({
-      riskScore: n.riskScore,
-      threatPhase: n.threatPhase,
-      threatTick: n.threatTick,
-      patched: n.patched,
-    })),
-    logLength: logEntries.length,
-  });
-}
-
-function restoreSnapshot(idx) {
-  const snap = history[idx];
-  if (!snap) return;
-  snap.nodes.forEach((s, i) => {
-    nodes[i].riskScore = s.riskScore;
-    nodes[i].threatPhase = s.threatPhase;
-    nodes[i].threatTick = s.threatTick;
-    nodes[i].patched = s.patched;
-  });
-}
-
-// ── Threat Simulation ──
-function addLog(msg, level) {
-  const t = currentTick;
-  const mm = String(Math.floor(t / 60)).padStart(2, '0');
-  const ss = String(t % 60).padStart(2, '0');
-  logEntries.push({ time: `${mm}:${ss}`, msg, level });
-}
-
-function simTick() {
-  currentTick++;
-
-  // Spawn new threats at exposed nodes
-  const exposed = nodes.filter(n => n.threatPhase === 'safe' && !n.patched && (n.exposure === 'Internet' || n.exposure === 'Public'));
-  for (let s = 0; s < cfg.spawnRate; s++) {
-    if (exposed.length === 0) break;
-    if (Math.random() < 0.3 * cfg.aggression) {
-      const target = exposed.splice(randomInt(0, exposed.length - 1), 1)[0];
-      target.threatPhase = 'recon';
-      target.threatTick = currentTick;
-      addLog(`RECON detected on ${target.name} (Exposure: ${target.exposure})`, 'info');
-    }
-  }
-
-  // Progress existing threats
-  nodes.forEach(n => {
-    if (n.patched || n.threatPhase === 'safe') return;
-    const age = currentTick - n.threatTick;
-    const speed = 3 + Math.round((1 - cfg.aggression) * 8); // ticks per phase
-
-    if (n.threatPhase === 'recon' && age >= speed) {
-      n.threatPhase = 'exploit';
-      n.threatTick = currentTick;
-      const vuln = n.vulns.length ? n.vulns[0].text : 'zero-day';
-      addLog(`EXPLOIT attempted — ${vuln.substring(0, 50)} on ${n.name}`, 'warn');
-    } else if (n.threatPhase === 'exploit' && age >= speed) {
-      n.threatPhase = 'compromised';
-      n.threatTick = currentTick;
-      addLog(`COMPROMISED — ${n.name} taken over. Lateral movement initiated.`, 'crit');
-
-      // Lateral movement: spread to neighbors
-      const neighbors = adjacency[n.id] || [];
-      // Sort by risk (prioritize high-value targets)
-      const targets = neighbors
-        .map(id => nodes[id])
-        .filter(nb => nb.threatPhase === 'safe' && !nb.patched)
-        .sort((a, b) => {
-          const scoreA = expToNum(a.exposure) * 2 + valToNum(a.assetValue) * 3;
-          const scoreB = expToNum(b.exposure) * 2 + valToNum(b.assetValue) * 3;
-          return scoreB - scoreA;
-        });
-
-      const spreadCount = Math.max(1, Math.ceil(targets.length * cfg.aggression));
-      for (let i = 0; i < Math.min(spreadCount, targets.length); i++) {
-        if (Math.random() < cfg.aggression * 0.8) {
-          targets[i].threatPhase = 'recon';
-          targets[i].threatTick = currentTick;
-          addLog(`LATERAL MOVEMENT — ${n.name} → ${targets[i].name} (recon started)`, 'warn');
-        }
-      }
-    }
-  });
-
-  // Update risk scores
-  nodes.forEach(n => {
-    let base = computeRisk(n);
-    if (n.threatPhase === 'recon')       base = Math.max(base, 30);
-    if (n.threatPhase === 'exploit')     base = Math.max(base, 60);
-    if (n.threatPhase === 'compromised') base = Math.max(base, 90);
-    n.riskScore = base;
-  });
-
-  // ── Transient message nodes (SNS/SQS pop-ups) ──
-  // Spawn new messages on random edges
-  for (let s = 0; s < cfg.msgRate; s++) {
-    if (edges.length === 0) break;
-    if (Math.random() < 0.25) {
-      const edge = edges[randomInt(0, edges.length - 1)];
-      const a = nodes[edge.source];
-      const b = nodes[edge.target];
-      if (!a || !b) continue;
-      const template = randomChoice(TRANSIENT_TYPES);
-      const isThreat = (a.threatPhase === 'compromised' || b.threatPhase === 'compromised') && Math.random() < 0.6;
-      const t = {
-        id: 'msg-' + (transientIdCounter++),
-        name: `${template.prefix}-${randomChoice(NAMES_ADJ)}-${randomInt(1,99).toString().padStart(2,'0')}`,
-        serviceType: template.type,
-        category: template.category,
-        icon: template.icon,
-        sourceId: edge.source,
-        targetId: edge.target,
-        spawnTick: currentTick,
-        lifespan: cfg.msgLifespan,
-        status: isThreat ? 'threat' : 'transit', // transit = healthy, threat = needs fixing
-        patched: false,
-        radius: 12,
-      };
-      // Position at midpoint with slight random offset
-      const ox = (Math.random() - 0.5) * 16;
-      const oy = (Math.random() - 0.5) * 16;
-      t.x = (a.x + b.x) / 2 + ox;
-      t.y = (a.y + b.y) / 2 + oy;
-      transientNodes.push(t);
-      if (isThreat) {
-        addLog(`MSG INTERCEPT — suspicious ${template.type} message on ${a.name} ↔ ${b.name}`, 'warn');
-      }
-    }
-  }
-
-  // Age out transient nodes
-  transientNodes = transientNodes.filter(t => {
-    const age = currentTick - t.spawnTick;
-    if (t.patched) return false; // fixed, remove
-    if (age >= t.lifespan) {
-      if (t.status === 'threat') {
-        // Unfixed threat message — boost risk on connected nodes
-        const a = nodes[t.sourceId];
-        const b = nodes[t.targetId];
-        if (a && a.threatPhase === 'safe' && !a.patched && Math.random() < 0.3) {
-          a.threatPhase = 'recon';
-          a.threatTick = currentTick;
-          addLog(`MSG EXPLOIT — unhandled ${t.serviceType} threat triggered recon on ${a.name}`, 'crit');
-        }
-        if (b && b.threatPhase === 'safe' && !b.patched && Math.random() < 0.3) {
-          b.threatPhase = 'recon';
-          b.threatTick = currentTick;
-          addLog(`MSG EXPLOIT — unhandled ${t.serviceType} threat triggered recon on ${b.name}`, 'crit');
-        }
-      }
-      return false; // expired
-    }
-    return true;
-  });
-
-  saveSnapshot();
-}
-
-
-// ── Color mapping ──
-function riskColor(score) {
-  const t = score / 100;
-  if (t < 0.25) {
-    const f = t / 0.25;
-    return lerpRGB(12, 10, 40, 0, 100, 200, f);
-  } else if (t < 0.5) {
-    const f = (t - 0.25) / 0.25;
-    return lerpRGB(0, 100, 200, 180, 0, 200, f);
-  } else if (t < 0.75) {
-    const f = (t - 0.5) / 0.25;
-    return lerpRGB(180, 0, 200, 255, 50, 80, f);
-  } else {
-    const f = (t - 0.75) / 0.25;
-    return lerpRGB(255, 50, 80, 255, 220, 240, f);
+/* ── Persistence ───────────────────────────────────────────────────────── */
+function loadState() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return structuredClone(DEFAULT_STATE);
+    return { ...structuredClone(DEFAULT_STATE), ...JSON.parse(raw) };
+  } catch {
+    return structuredClone(DEFAULT_STATE);
   }
 }
-
-function lerpRGB(r1, g1, b1, r2, g2, b2, f) {
-  return `rgb(${r1 + (r2 - r1) * f | 0},${g1 + (g2 - g1) * f | 0},${b1 + (b2 - b1) * f | 0})`;
+function saveState() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
+  catch (e) { console.warn('save failed', e); }
 }
 
-function riskGlow(score) {
-  if (score < 30) return 0;
-  return ((score - 30) / 70) * 20;
+/* ── Rendering ─────────────────────────────────────────────────────────── */
+function renderStats() {
+  byId('stat-hp').textContent      = `${state.hp}/${state.hpMax}`;
+  byId('stat-mp').textContent      = `${state.mp}/${state.mpMax}`;
+  byId('stat-xp').textContent      = state.xp;
+  byId('stat-stealth').textContent = state.stealth;
+  byId('stat-insight').textContent = state.insight;
+}
+function renderPhase() {
+  PHASES.forEach(p => {
+    const el = byId('phase-' + p);
+    el.classList.remove('active', 'done');
+    const idxCur = PHASES.indexOf(state.phase);
+    const idxP   = PHASES.indexOf(p);
+    if (p === state.phase) el.classList.add('active');
+    else if (idxP < idxCur) el.classList.add('done');
+  });
+}
+function byId(id) { return document.getElementById(id); }
+
+function log(msg, cls = '') {
+  const body = byId('log-body');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry ' + cls;
+  const ts = String(body.children.length + 1).padStart(4, '0');
+  entry.innerHTML = `<span class="ts">${ts}</span>${msg}`;
+  body.appendChild(entry);
+  body.parentElement.scrollTop = body.parentElement.scrollHeight;
 }
 
-// ── Rendering ──
-let animTime = 0;
-
-function render(timestamp) {
-  animTime = timestamp || 0;
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-
-  // Background
-  ctx.fillStyle = '#0a0a0f';
-  ctx.fillRect(0, 0, w, h);
-
-  // Grid aligned to node placement — batched into single paths
-  const gPad = 50;
-  const gW = w - gPad * 2;
-  const gH = h - gPad * 2;
-  const gCols = Math.floor(Math.sqrt(cfg.assetCount * (gW / gH)));
-  const gRows = Math.ceil(cfg.assetCount / gCols);
-  const gCellW = gW / gCols;
-  const gCellH = gH / gRows;
-
-  ctx.strokeStyle = 'rgba(0,200,255,0.03)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let c = 0; c <= gCols; c++) {
-    const x = gPad + c * gCellW;
-    ctx.moveTo(x, gPad); ctx.lineTo(x, gPad + gH);
-  }
-  for (let r = 0; r <= gRows; r++) {
-    const y = gPad + r * gCellH;
-    ctx.moveTo(gPad, y); ctx.lineTo(gPad + gW, y);
-  }
-  ctx.stroke();
-
-  // Subtle dot at each grid intersection — batched into single path
-  ctx.fillStyle = 'rgba(0,200,255,0.06)';
-  ctx.beginPath();
-  for (let r = 0; r <= gRows; r++) {
-    for (let c = 0; c <= gCols; c++) {
-      ctx.moveTo(gPad + c * gCellW + 1.5, gPad + r * gCellH);
-      ctx.arc(gPad + c * gCellW, gPad + r * gCellH, 1.5, 0, Math.PI * 2);
-    }
-  }
-  ctx.fill();
-
-  // Draw edges — batched: inactive edges in one path, active edges in another
-  // Inactive edges first (single path, no shadow)
-  ctx.strokeStyle = 'rgba(0,200,255,0.08)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  edges.forEach(e => {
-    const a = nodes[e.source];
-    const b = nodes[e.target];
-    if (!isVisible(a) || !isVisible(b)) return;
-    const isActive = (a.threatPhase === 'compromised' && b.threatPhase !== 'safe') ||
-                     (b.threatPhase === 'compromised' && a.threatPhase !== 'safe');
-    if (!isActive) {
-      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-    }
-  });
-  ctx.stroke();
-
-  // Active threat edges (single path + dots, one shadowBlur set)
-  ctx.strokeStyle = 'rgba(255,50,80,0.35)';
-  ctx.lineWidth = 2.5;
-  ctx.shadowColor = 'rgba(255,50,80,0.5)';
-  ctx.shadowBlur = 8;
-  ctx.beginPath();
-  edges.forEach(e => {
-    const a = nodes[e.source];
-    const b = nodes[e.target];
-    if (!isVisible(a) || !isVisible(b)) return;
-    const isActive = (a.threatPhase === 'compromised' && b.threatPhase !== 'safe') ||
-                     (b.threatPhase === 'compromised' && a.threatPhase !== 'safe');
-    if (isActive) {
-      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-    }
-  });
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // Active edge animated dots (no shadow needed)
-  ctx.fillStyle = 'rgba(255,100,120,0.9)';
-  ctx.beginPath();
-  edges.forEach(e => {
-    const a = nodes[e.source];
-    const b = nodes[e.target];
-    if (!isVisible(a) || !isVisible(b)) return;
-    const isActive = (a.threatPhase === 'compromised' && b.threatPhase !== 'safe') ||
-                     (b.threatPhase === 'compromised' && a.threatPhase !== 'safe');
-    if (isActive) {
-      const t = ((animTime * 0.002 + e.source * 0.5) % 1);
-      const dotX = a.x + (b.x - a.x) * t;
-      const dotY = a.y + (b.y - a.y) * t;
-      ctx.moveTo(dotX + 3, dotY);
-      ctx.arc(dotX, dotY, 3, 0, Math.PI * 2);
-    }
-  });
-  ctx.fill();
-
-  // Draw nodes — two passes: non-glowing first, then glowing (minimizes shadowBlur state changes)
-  const visibleNodes = nodes.filter(n => isVisible(n));
-
-  // Pass 1: nodes with no glow (shadowBlur stays 0)
-  visibleNodes.forEach(n => {
-    const glow = riskGlow(n.riskScore);
-    if (glow > 0) return; // drawn in pass 2
-    const r = n.radius;
-    const color = riskColor(n.riskScore);
-    ctx.fillStyle = color;
-    ctx.strokeStyle = n.id === selectedNodeId ? '#fff' : color;
-    ctx.lineWidth = n.id === selectedNodeId ? 2 : 1;
-    drawHex(n.x, n.y, r);
-    ctx.fill();
-    ctx.stroke();
-  });
-
-  // Pass 2: nodes with glow (one shadowBlur set per node — unavoidable but fewer nodes)
-  visibleNodes.forEach(n => {
-    const glow = riskGlow(n.riskScore);
-    if (glow <= 0) return;
-    const r = n.radius;
-    const color = riskColor(n.riskScore);
-    ctx.shadowColor = color;
-    ctx.shadowBlur = glow;
-    ctx.fillStyle = color;
-    ctx.strokeStyle = n.id === selectedNodeId ? '#fff' : color;
-    ctx.lineWidth = n.id === selectedNodeId ? 2 : 1;
-    drawHex(n.x, n.y, r);
-    ctx.fill();
-    ctx.stroke();
-  });
-  ctx.shadowBlur = 0;
-
-  // Overlays: recon pulses, patched indicators, icons, labels
-  visibleNodes.forEach(n => {
-    const r = n.radius;
-
-    // Recon pulse
-    if (n.threatPhase === 'recon') {
-      const pulse = Math.sin(animTime * 0.008) * 0.3 + 0.4;
-      ctx.strokeStyle = `rgba(0,200,255,${pulse})`;
-      ctx.lineWidth = 1.5;
-      const pr = r + 4 + Math.sin(animTime * 0.006) * 3;
-      drawHex(n.x, n.y, pr);
-      ctx.stroke();
-    }
-
-    // Patched indicator
-    if (n.patched) {
-      ctx.strokeStyle = 'rgba(0,255,136,0.6)';
-      ctx.lineWidth = 2;
-      drawHex(n.x, n.y, r + 3);
-      ctx.stroke();
-    }
-
-    // Icon
-    ctx.fillStyle = n.riskScore > 60 ? '#fff' : 'rgba(200,210,230,0.8)';
-    ctx.font = '11px Share Tech Mono';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(n.icon, n.x, n.y - 1);
-
-    // Label (skip selected node — drawn last for z-order)
-    if (n.id !== selectedNodeId && (nodes.length <= 50)) {
-      drawNodeLabel(n, false);
-    }
-  });
-
-  // Draw transient message nodes (SNS/SQS pop-ups)
-  transientNodes.forEach(t => {
-    const age = currentTick - t.spawnTick;
-    const life = age / t.lifespan; // 0..1
-    const r = t.radius;
-
-    // Fade in/out
-    const fadeIn = Math.min(1, age * 3); // quick fade in over ~0.3 of lifespan
-    const fadeOut = life > 0.7 ? 1 - (life - 0.7) / 0.3 : 1;
-    const alpha = fadeIn * fadeOut;
-    if (alpha <= 0) return;
-
-    // Bobbing animation
-    const bob = Math.sin(animTime * 0.004 + t.spawnTick) * 3;
-    const drawY = t.y + bob;
-
-    const isThreat = t.status === 'threat';
-    const isSelected = selectedNodeId === t.id;
-
-    // Glow for threats
-    if (isThreat) {
-      const pulse = Math.sin(animTime * 0.008 + t.spawnTick) * 0.3 + 0.7;
-      ctx.shadowColor = `rgba(255,170,0,${0.5 * pulse * alpha})`;
-      ctx.shadowBlur = 10;
-    }
-
-    // Circle body (distinct from hex permanent nodes)
-    ctx.beginPath();
-    ctx.arc(t.x, drawY, r, 0, Math.PI * 2);
-    ctx.fillStyle = isThreat
-      ? `rgba(255,170,0,${0.25 * alpha})`
-      : `rgba(0,200,255,${0.15 * alpha})`;
-    ctx.fill();
-    ctx.strokeStyle = isSelected
-      ? `rgba(255,255,255,${alpha})`
-      : isThreat
-        ? `rgba(255,170,0,${0.6 * alpha})`
-        : `rgba(0,200,255,${0.35 * alpha})`;
-    ctx.lineWidth = isSelected ? 2 : 1;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Countdown ring
-    ctx.strokeStyle = isThreat
-      ? `rgba(255,80,80,${0.5 * alpha})`
-      : `rgba(0,255,136,${0.4 * alpha})`;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(t.x, drawY, r + 2, -Math.PI / 2, -Math.PI / 2 + (1 - life) * Math.PI * 2);
-    ctx.stroke();
-
-    // Icon
-    ctx.fillStyle = `rgba(255,255,255,${0.9 * alpha})`;
-    ctx.font = '10px Share Tech Mono';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(t.icon, t.x, drawY);
-
-    // Status label below
-    ctx.font = '8px Share Tech Mono';
-    ctx.fillStyle = isThreat
-      ? `rgba(255,170,0,${0.8 * alpha})`
-      : `rgba(0,200,255,${0.6 * alpha})`;
-    ctx.fillText(isThreat ? 'THREAT' : t.serviceType, t.x, drawY + r + 8);
-  });
-
-  // Draw selected node's label last so it appears on top of everything
-  if (selectedNodeId !== null) {
-    if (typeof selectedNodeId === 'string') {
-      // Transient node selected
-      const sel = transientNodes.find(t => t.id === selectedNodeId);
-      if (sel) {
-        const bob = Math.sin(animTime * 0.004 + sel.spawnTick) * 3;
-        drawNodeLabel({ ...sel, y: sel.y + bob, serviceType: sel.serviceType }, true);
-      }
-    } else {
-      const sel = nodes[selectedNodeId];
-      if (sel && isVisible(sel)) drawNodeLabel(sel, true);
-    }
-  }
+/* ── Canvas stub (full graph in follow-up) ─────────────────────────────── */
+function initCanvas() {
+  const c = byId('dungeon-canvas');
+  const resize = () => {
+    c.width  = c.parentElement.clientWidth;
+    c.height = c.parentElement.clientHeight;
+    drawStub(c);
+  };
+  window.addEventListener('resize', resize);
+  resize();
 }
-
-function drawNodeLabel(n, isSelected) {
-  const r = n.radius;
-  const label = n.serviceType;
-  const labelY = n.y + r + 12;
-  ctx.font = '10px Share Tech Mono';
+function drawStub(c) {
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = 'rgba(127, 255, 158, 0.35)';
+  ctx.font = '12px "Cinzel", serif';
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const tw = ctx.measureText(label).width;
-  const px = 5, py = 2;
-  // Dark background pill
-  ctx.fillStyle = isSelected ? 'rgba(6,6,16,0.92)' : 'rgba(6,6,16,0.75)';
-  ctx.beginPath();
-  ctx.roundRect(n.x - tw/2 - px, labelY - 6 - py, tw + px*2, 12 + py*2, 4);
-  ctx.fill();
-  if (isSelected) {
-    ctx.strokeStyle = 'rgba(0,200,255,0.5)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(n.x - tw/2 - px, labelY - 6 - py, tw + px*2, 12 + py*2, 4);
-    ctx.stroke();
-  }
-  // Text
-  ctx.fillStyle = isSelected ? '#fff' : 'rgba(210,218,240,0.9)';
-  ctx.fillText(label, n.x, labelY);
+  ctx.fillText('— dungeon map renders here —', c.width / 2, c.height / 2 - 10);
+  ctx.fillStyle = 'rgba(154, 143, 119, 0.6)';
+  ctx.font = '11px "IBM Plex Mono", monospace';
+  ctx.fillText('nodes + edges port in next pass', c.width / 2, c.height / 2 + 14);
 }
 
-function drawHex(cx, cy, r) {
-  ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const angle = Math.PI / 3 * i - Math.PI / 6;
-    const x = cx + r * Math.cos(angle);
-    const y = cy + r * Math.sin(angle);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-}
-
-function isVisible(node) {
-  if (activeFilters.size === 0) return true;
-  return activeFilters.has(node.category);
-}
-
-// ── Canvas sizing ──
-function resizeCanvas() {
-  const wrap = document.getElementById('canvas-wrap');
-  canvas.width = wrap.clientWidth;
-  canvas.height = wrap.clientHeight;
-}
-
-// ── Legend gradient ──
-function drawLegend() {
-  const lg = document.getElementById('legend-gradient');
-  const lctx = lg.getContext('2d');
-  for (let x = 0; x < 140; x++) {
-    const score = (x / 139) * 100;
-    lctx.fillStyle = riskColor(score);
-    lctx.fillRect(x, 0, 1, 10);
-  }
-}
-
-// ── Interaction ──
-canvas.addEventListener('click', e => {
-  const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-
-  // Check transient nodes first (they render on top)
-  let closestTransient = null, closestTDist = Infinity;
-  transientNodes.forEach(t => {
-    const bob = Math.sin(animTime * 0.004 + t.spawnTick) * 3;
-    const dx = t.x - mx, dy = (t.y + bob) - my;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < t.radius + 5 && dist < closestTDist) {
-      closestTransient = t;
-      closestTDist = dist;
-    }
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+function wireTabs() {
+  document.querySelectorAll('#spellbook .tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#spellbook .tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('#spellbook .tab-pane').forEach(p => p.style.display = 'none');
+      document.querySelector(`#spellbook [data-pane="${btn.dataset.tab}"]`).style.display = '';
+    });
   });
-
-  if (closestTransient) {
-    const wasSelected = selectedNodeId !== null;
-    selectedNodeId = closestTransient.id;
-    showTransientDetail(closestTransient, !wasSelected);
-    return;
-  }
-
-  let closest = null, closestDist = Infinity;
-  nodes.forEach(n => {
-    if (!isVisible(n)) return;
-    const dx = n.x - mx, dy = n.y - my;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < n.radius + 5 && dist < closestDist) {
-      closest = n;
-      closestDist = dist;
-    }
-  });
-
-  if (closest) {
-    const wasSelected = selectedNodeId !== null;
-    selectedNodeId = closest.id;
-    showDetail(closest, !wasSelected);
-  } else {
-    selectedNodeId = null;
-    clearDetail();
-  }
-});
-
-// ── Refresh selected detail (handles both permanent and transient nodes) ──
-function refreshSelectedDetail() {
-  if (selectedNodeId === null) return;
-  if (typeof selectedNodeId === 'string') {
-    const t = transientNodes.find(n => n.id === selectedNodeId);
-    if (t) showTransientDetail(t, false);
-    else { selectedNodeId = null; clearDetail(); }
-  } else {
-    showDetail(nodes[selectedNodeId]);
-  }
 }
 
-// ── Tab switching ──
-function switchTab(tab) {
-  document.querySelectorAll('.right-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
-  document.getElementById(tab === 'detail' ? 'detail-drawer' : 'alert-log').classList.add('active');
-  if (tab === 'feed') {
-    document.querySelector('.right-tab[data-tab="feed"]').classList.remove('has-alert');
-    const logEl = document.getElementById('alert-log');
-    logEl.scrollTop = logEl.scrollHeight;
-  }
+/* ── Modal ─────────────────────────────────────────────────────────────── */
+function openModal(title, html) {
+  byId('modal-title').textContent = title;
+  byId('modal-body').innerHTML = html;
+  byId('modal-overlay').classList.add('show');
 }
+function closeModal() { byId('modal-overlay').classList.remove('show'); }
 
-// ── Detail drawer ──
-function showDetail(n, autoSwitch) {
-  if (autoSwitch) switchTab('detail');
-  document.getElementById('detail-placeholder').style.display = 'none';
-  const dc = document.getElementById('detail-content');
-  dc.className = 'detail-content visible';
-
-  const phaseBadge = {
-    safe: '<span class="badge badge-none">SAFE</span>',
-    recon: '<span class="badge badge-low">RECON</span>',
-    exploit: '<span class="badge badge-medium">EXPLOIT</span>',
-    compromised: '<span class="badge badge-critical">COMPROMISED</span>',
-  };
-
-  const valBadge = {
-    Low: 'badge-low', Medium: 'badge-medium', High: 'badge-high', Critical: 'badge-critical',
-  };
-
-  const sevW = n.vulnSeverity === 'None' ? 0 : sevToNum(n.vulnSeverity) / 4 * 40;
-  const expW = expToNum(n.exposure) / 2 * 35;
-  const valW = valToNum(n.assetValue) / 3 * 25;
-
-  let vulnHTML = '';
-  n.vulns.forEach(v => {
-    vulnHTML += `<div class="vuln-item sev-${v.sev.toLowerCase()}">${v.text}</div>`;
-  });
-  if (!vulnHTML) vulnHTML = '<div style="font-size:10px;color:var(--text-dim)">No known vulnerabilities</div>';
-
-  let mitHTML = '';
-  n.mitigations.forEach(m => mitHTML += `<li>${m}</li>`);
-
-  dc.innerHTML = `
-    <div class="detail-name">${n.name}</div>
-    <div class="detail-type">${n.serviceType} — ${n.category}</div>
-    <div class="detail-row"><span class="label">Asset Value</span><span class="badge ${valBadge[n.assetValue]}">${n.assetValue}</span></div>
-    <div class="detail-row"><span class="label">Exposure</span>${n.exposure}</div>
-    <div class="detail-row"><span class="label">Threat Phase</span>${phaseBadge[n.threatPhase]}</div>
-    <div class="detail-row"><span class="label">Risk Score</span><span style="color:${riskColor(n.riskScore)};font-weight:700">${n.riskScore}/100</span></div>
-    <div class="risk-bar-wrap">
-      <div style="font-size:9px;color:var(--text-dim)">Risk Breakdown</div>
-      <div class="risk-bar">
-        <div class="seg-sev" style="width:${sevW}%"></div>
-        <div class="seg-exp" style="width:${expW}%"></div>
-        <div class="seg-val" style="width:${valW}%"></div>
-      </div>
-      <div class="risk-bar-labels"><span>Severity ${Math.round(sevW)}%</span><span>Exposure ${Math.round(expW)}%</span><span>Value ${Math.round(valW)}%</span></div>
+/* ── Hint + Cheatsheet (gated by phase/mode) ───────────────────────────── */
+function showHint() {
+  // Real hints come from level data; stub here.
+  log('You squint at the login form. Input fields echo back unescaped.', 'lore');
+}
+function showCheatsheet() {
+  const inSandbox = state.level === 99;
+  const explained = inSandbox;
+  const rows = [
+    ['\'',          'Single-quote — breaks out of a string literal.'],
+    ['OR 1=1',      'Always-true tautology.'],
+    ['--',          'SQL line comment — nullifies trailing query.'],
+    ['UNION SELECT','Appends attacker-chosen rows to result set.'],
+    ['SLEEP(n)',    'MySQL time delay — used for blind timing.'],
+    ['WAITFOR DELAY','T-SQL time delay.'],
+    [';',           'Statement terminator — enables stacked queries.'],
+  ];
+  const html = `
+    <div class="dim" style="margin-bottom:10px;">
+      ${explained ? 'Sandbox mode — definitions visible.' : 'Active level — names only. Definitions unlock in sandbox.'}
     </div>
-    <div style="font-size:10px;color:var(--accent2);margin:8px 0 4px">Vulnerabilities</div>
-    <div class="vuln-list">${vulnHTML}</div>
-    <div style="font-size:10px;color:var(--green);margin:8px 0 4px">Suggested Mitigations</div>
-    <ul class="mitigations">${mitHTML}</ul>
-    <button class="btn-patch" id="btn-patch-node" onclick="patchNode(${n.id})" ${n.patched ? 'disabled' : ''}>${n.patched ? 'Already Patched' : 'Patch This Node'}</button>
+    <table style="width:100%; font-size:12px;">
+      ${rows.map(([k, v]) => `
+        <tr>
+          <td class="mono" style="color:var(--phosphor); padding:4px 10px 4px 0; vertical-align:top; white-space:nowrap;">${k}</td>
+          <td class="dim">${explained ? v : '<i>hidden</i>'}</td>
+        </tr>
+      `).join('')}
+    </table>
   `;
+  openModal('Syntax Cheatsheet', html);
 }
 
-function clearDetail() {
-  document.getElementById('detail-placeholder').style.display = 'block';
-  document.getElementById('detail-content').className = 'detail-content';
+/* ── Phase advance stub ────────────────────────────────────────────────── */
+function advance() {
+  const i = PHASES.indexOf(state.phase);
+  state.phase = PHASES[(i + 1) % PHASES.length];
+  renderPhase();
+  saveState();
+  log(`phase ▸ ${state.phase}`, 'hit');
 }
 
-function patchNode(id) {
-  const n = nodes[id];
-  n.patched = true;
-  n.threatPhase = 'safe';
-  n.riskScore = computeRisk(n);
-  addLog(`PATCH APPLIED — ${n.name} risk score reduced to ${n.riskScore}`, 'good');
-  showDetail(n);
-  renderLog();
-}
+/* ── Boot ──────────────────────────────────────────────────────────────── */
+function boot() {
+  wireTabs();
+  initCanvas();
+  renderStats();
+  renderPhase();
 
-function showTransientDetail(t, autoSwitch) {
-  if (autoSwitch) switchTab('detail');
-  document.getElementById('detail-placeholder').style.display = 'none';
-  const dc = document.getElementById('detail-content');
-  dc.className = 'detail-content visible';
-
-  const age = currentTick - t.spawnTick;
-  const remaining = Math.max(0, t.lifespan - age);
-  const srcNode = nodes[t.sourceId];
-  const tgtNode = nodes[t.targetId];
-  const isThreat = t.status === 'threat';
-
-  const statusBadge = isThreat
-    ? '<span class="badge badge-high">THREAT</span>'
-    : '<span class="badge badge-low">IN TRANSIT</span>';
-
-  dc.innerHTML = `
-    <div class="detail-name">${t.name}</div>
-    <div class="detail-type">${t.serviceType} — Transient Message</div>
-    <div class="detail-row"><span class="label">Status</span>${statusBadge}</div>
-    <div class="detail-row"><span class="label">Time Remaining</span><span style="color:${remaining <= 2 ? 'var(--red)' : 'var(--accent)'};font-weight:700">${remaining} ticks</span></div>
-    <div class="detail-row"><span class="label">Source</span><span style="color:var(--text)">${srcNode ? srcNode.name : '?'}</span></div>
-    <div class="detail-row"><span class="label">Target</span><span style="color:var(--text)">${tgtNode ? tgtNode.name : '?'}</span></div>
-    <div style="font-size:10px;color:var(--text-dim);margin:12px 0 6px;line-height:1.6">
-      ${isThreat
-        ? 'This message contains a suspicious payload. If left unhandled it may trigger recon on connected nodes when it expires.'
-        : 'This message is transiting normally between services. It will complete delivery automatically.'}
-    </div>
-    ${isThreat
-      ? `<button class="btn-patch" onclick="patchTransient('${t.id}')">Intercept &amp; Neutralize</button>`
-      : '<div style="font-size:10px;color:var(--green);text-align:center;padding:8px 0;">No action required</div>'}
-  `;
-}
-
-function patchTransient(id) {
-  const t = transientNodes.find(n => n.id === id);
-  if (!t) return;
-  t.patched = true;
-  addLog(`MSG INTERCEPTED — ${t.serviceType} threat ${t.name} neutralized`, 'good');
-  selectedNodeId = null;
-  clearDetail();
-  renderLog();
-}
-
-// ── Alert log ──
-let _lastLogLength = 0;
-const _logContainer = document.getElementById('log-entries');
-
-function renderLog() {
-  const viewing = viewTick >= 0 ? history[viewTick]?.logLength || logEntries.length : logEntries.length;
-  const visible = logEntries.slice(0, viewing);
-  const toShow = visible.slice(-200);
-
-  // Skip full rebuild if only new entries appended (common case)
-  if (viewTick < 0 && toShow.length >= _lastLogLength && _lastLogLength > 0) {
-    // Append only new entries
-    const newStart = _lastLogLength;
-    for (let i = newStart; i < toShow.length; i++) {
-      const e = toShow[i];
-      const div = document.createElement('div');
-      const cls = { info: 'log-info', warn: 'log-warn', crit: 'log-crit', good: 'log-good' }[e.level] || '';
-      div.className = 'log-entry ' + cls;
-      div.innerHTML = `<span class="log-time">[${e.time}]</span> ${e.msg}`;
-      _logContainer.appendChild(div);
-    }
-    // Trim excess children if over 200
-    while (_logContainer.children.length > 200) {
-      _logContainer.removeChild(_logContainer.firstChild);
-    }
-  } else {
-    // Full rebuild (scrubbing timeline or first render)
-    _logContainer.innerHTML = toShow.map(e => {
-      const cls = { info: 'log-info', warn: 'log-warn', crit: 'log-crit', good: 'log-good' }[e.level] || '';
-      return `<div class="log-entry ${cls}"><span class="log-time">[${e.time}]</span> ${e.msg}</div>`;
-    }).join('');
-  }
-  _lastLogLength = toShow.length;
-
-  // Auto-scroll if feed tab is active
-  const logEl = document.getElementById('alert-log');
-  if (logEl.classList.contains('active')) {
-    logEl.scrollTop = logEl.scrollHeight;
-  } else if (toShow.length > 0) {
-    document.querySelector('.right-tab[data-tab="feed"]').classList.add('has-alert');
-  }
-}
-
-// ── Summary bar ── (cached DOM refs)
-const _sumTotalEl = document.getElementById('sum-total');
-const _sumCompEl = document.getElementById('sum-comp');
-const _sumPatchedEl = document.getElementById('sum-patched');
-const _sumThreatEl = document.getElementById('sum-threat');
-
-function updateSummary() {
-  const total = nodes.length;
-  let comp = 0, patched = 0, riskSum = 0;
-  for (let i = 0; i < total; i++) {
-    if (nodes[i].threatPhase === 'compromised') comp++;
-    if (nodes[i].patched) patched++;
-    riskSum += nodes[i].riskScore;
-  }
-  const avgRisk = riskSum / total;
-
-  _sumTotalEl.textContent = total;
-  _sumCompEl.textContent = Math.round(comp / total * 100) + '%';
-  _sumPatchedEl.textContent = Math.round(patched / total * 100) + '%';
-
-  if (avgRisk < 20) { _sumThreatEl.textContent = 'LOW'; _sumThreatEl.style.color = 'var(--accent)'; }
-  else if (avgRisk < 45) { _sumThreatEl.textContent = 'MEDIUM'; _sumThreatEl.style.color = 'var(--amber)'; }
-  else if (avgRisk < 70) { _sumThreatEl.textContent = 'HIGH'; _sumThreatEl.style.color = 'var(--accent2)'; }
-  else { _sumThreatEl.textContent = 'CRITICAL'; _sumThreatEl.style.color = 'var(--red)'; }
-}
-
-// ── Filter ──
-function updateFilters() {
-  const categories = [...new Set(SERVICE_TYPES.map(s => s.category))];
-  const row = document.getElementById('filter-row');
-  row.innerHTML = '';
-  categories.forEach(cat => {
-    const btn = document.createElement('button');
-    btn.className = 'filter-btn' + (activeFilters.size === 0 || activeFilters.has(cat) ? ' active' : '');
-    btn.textContent = cat;
-    btn.onclick = () => {
-      if (activeFilters.has(cat)) {
-        activeFilters.delete(cat);
-      } else {
-        activeFilters.add(cat);
-      }
-      // If all selected or none selected, show all
-      if (activeFilters.size === categories.length) activeFilters.clear();
-      updateFilters();
-    };
-    row.appendChild(btn);
+  byId('btn-hint').addEventListener('click', showHint);
+  byId('btn-cheatsheet').addEventListener('click', showCheatsheet);
+  byId('btn-advance').addEventListener('click', advance);
+  byId('modal-close').addEventListener('click', closeModal);
+  byId('modal-overlay').addEventListener('click', e => {
+    if (e.target.id === 'modal-overlay') closeModal();
   });
-}
 
-// ── Timeline ──
-function updateTimeline() {
-  const total = Math.max(1, history.length - 1);
-  const current = viewTick >= 0 ? viewTick : total;
-  const pct = (current / total) * 100;
-
-  document.getElementById('tl-progress').style.width = pct + '%';
-  document.getElementById('tl-handle').style.left = pct + '%';
-  document.getElementById('tl-tick').textContent = viewTick >= 0 ? viewTick : currentTick;
-
-  const t = viewTick >= 0 ? viewTick : currentTick;
-  const mm = String(Math.floor(t / 60)).padStart(2, '0');
-  const ss = String(t % 60).padStart(2, '0');
-  document.getElementById('tl-time').textContent = mm + ':' + ss;
-}
-
-// Timeline scrubber drag
-let draggingScrubber = false;
-const scrubberWrap = document.getElementById('tl-scrubber-wrap');
-
-scrubberWrap.addEventListener('mousedown', e => {
-  draggingScrubber = true;
-  scrubTo(e);
-});
-document.addEventListener('mousemove', e => {
-  if (draggingScrubber) scrubTo(e);
-});
-document.addEventListener('mouseup', () => { draggingScrubber = false; });
-
-function scrubTo(e) {
-  const rect = scrubberWrap.getBoundingClientRect();
-  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  const tick = Math.round(pct * (history.length - 1));
-  viewTick = tick;
-  restoreSnapshot(tick);
-  renderLog();
-  updateTimeline();
-  updateSummary();
-  refreshSelectedDetail();
-}
-
-function stepBack() {
-  if (viewTick < 0) viewTick = history.length - 1;
-  viewTick = Math.max(0, viewTick - 1);
-  restoreSnapshot(viewTick);
-  renderLog();
-  updateTimeline();
-  updateSummary();
-  refreshSelectedDetail();
-}
-
-function stepForward() {
-  if (viewTick < 0) return;
-  viewTick++;
-  if (viewTick >= history.length) {
-    viewTick = -1; // back to live
-  } else {
-    restoreSnapshot(viewTick);
+  if (!state.flags.tutorialSeen) {
+    log('The spellbook lies open. A faint rune marks Chapter 1 — Auth Bypass.', 'lore');
+    log('Press Begin to cross the threshold.', 'lore');
   }
-  renderLog();
-  updateTimeline();
-  updateSummary();
-  refreshSelectedDetail();
 }
 
-// ── Controls ──
-function bindSlider(id, setter) {
-  const el = document.getElementById('c-' + id);
-  const vEl = document.getElementById('v-' + id);
-  el.addEventListener('input', () => {
-    const v = parseFloat(el.value);
-    vEl.textContent = el.step.includes('.') ? v.toFixed(2) : v;
-    setter(v);
-  });
-}
-
-bindSlider('aggression', v => cfg.aggression = v);
-bindSlider('spawnrate', v => cfg.spawnRate = v | 0);
-bindSlider('patcheff', v => cfg.patchEff = v);
-bindSlider('assets', v => cfg.assetCount = v | 0);
-bindSlider('density', v => cfg.edgeDensity = v);
-bindSlider('msgrate', v => cfg.msgRate = v | 0);
-bindSlider('msglife', v => cfg.msgLifespan = v | 0);
-bindSlider('tickspeed', v => cfg.tickSpeed = v | 0);
-
-function togglePause() {
-  paused = !paused;
-  document.getElementById('btn-play').textContent = paused ? 'Resume' : 'Pause';
-  document.getElementById('tl-play').innerHTML = paused ? '&#9654;' : '&#10074;&#10074;';
-  if (!paused) viewTick = -1; // resume = go live
-}
-
-function regenerate() {
-  resizeCanvas();
-  generateGraph();
-}
-
-function exportJSON() {
-  const report = {
-    timestamp: new Date().toISOString(),
-    tick: currentTick,
-    summary: {
-      totalNodes: nodes.length,
-      compromised: nodes.filter(n => n.threatPhase === 'compromised').length,
-      patched: nodes.filter(n => n.patched).length,
-      avgRisk: Math.round(nodes.reduce((s, n) => s + n.riskScore, 0) / nodes.length),
-    },
-    nodes: nodes.map(n => ({
-      name: n.name, type: n.serviceType, category: n.category,
-      exposure: n.exposure, assetValue: n.assetValue, riskScore: n.riskScore,
-      threatPhase: n.threatPhase, patched: n.patched, vulns: n.vulns,
-    })),
-    transientMessages: transientNodes.map(t => ({
-      name: t.name, type: t.serviceType, status: t.status,
-      source: nodes[t.sourceId]?.name, target: nodes[t.targetId]?.name,
-      ticksRemaining: Math.max(0, t.lifespan - (currentTick - t.spawnTick)),
-    })),
-    events: logEntries,
-  };
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-  const link = document.createElement('a');
-  link.download = 'incident-report.json';
-  link.href = URL.createObjectURL(blob);
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
-
-// ── Keyboard shortcuts ──
-document.addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  if (e.code === 'Space') { e.preventDefault(); togglePause(); }
-  if (e.code === 'KeyR') regenerate();
-  if (e.code === 'ArrowLeft') stepBack();
-  if (e.code === 'ArrowRight') stepForward();
-});
-
-// ── Main loop ──
-let lastTickTime = 0;
-
-function mainLoop(timestamp) {
-  requestAnimationFrame(mainLoop);
-
-  // Simulation tick
-  if (!paused && viewTick < 0) {
-    const interval = 1000 / cfg.tickSpeed;
-    if (timestamp - lastTickTime >= interval) {
-      simTick();
-      renderLog();
-      updateTimeline();
-      updateSummary();
-      refreshSelectedDetail();
-      lastTickTime = timestamp;
-    }
-  }
-
-  render(timestamp);
-}
-
-// ── Visibility handling: prevent catch-up ticks after tab switch ──
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    lastTickTime = performance.now();
-  }
-});
-
-// ── Init ──
-window.addEventListener('resize', () => {
-  resizeCanvas();
-  if (nodes.length) regenerate();
-});
-
-resizeCanvas();
-generateGraph();
-drawLegend();
-requestAnimationFrame(mainLoop);
+document.addEventListener('DOMContentLoaded', boot);
 </script>
 </body>
 </html>
