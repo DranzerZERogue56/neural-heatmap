@@ -1558,7 +1558,194 @@ GRANT SELECT (id, username) ON users TO app_reader;  -- no pw_hash`,
       };
     },
   },
-  // Chapters 6 – 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
+  6: {
+    id: 6, name: 'Stacked Queries', class: 'stacked',
+    intro: 'Some drivers run multiple statements per call. The semicolon is a key.',
+    levels: {
+      1: {
+        id: '6.1', name: 'Two for One',
+        endpoint: 'POST /search?q={u}',
+        query: "SELECT id FROM posts WHERE title='{u}'",
+        field: 'q',
+        goal: 'Confirm the backend allows stacked statements: append a second SELECT after a semicolon.',
+        reconNotes: [
+          'Backend: Postgres + node-postgres (allows stacking by default).',
+          'MySQL+mysql2 typically blocks stacking unless multipleStatements:true.',
+          "Probe:  '; SELECT 1; --   if it runs without erroring on the second stmt, stacking is enabled.",
+        ],
+        hints: [
+          'End the original statement, then start a new one.',
+          "Payload:  '; SELECT 1; --",
+        ],
+        check(p) {
+          const ok = /['"]?\s*;\s*select\b/i.test(p) && /(--|\/\*|#)/.test(p);
+          return ok
+            ? { ok: true, narrate: 'Both statements ran. Stacking is open.' }
+            : { ok: false, narrate: 'Stacking probe missing.' };
+        },
+        unlockTokens: [';'],
+        defense: {
+          title: 'Disable Multi-Statement at the Driver',
+          body: 'Most drivers have a flag to forbid stacked statements. Combine with parameters.',
+          code:
+`// node-postgres — single statement only is the default; do not opt in.
+// mysql2:
+const conn = await mysql.createConnection({ multipleStatements: false }); // default
+
+// And of course parameterize.`,
+          tip: 'A driver that refuses stacking turns this whole class into errors.',
+        },
+      },
+      2: {
+        id: '6.2', name: 'New Admin in Town',
+        endpoint: 'POST /search?q={u}',
+        query: "SELECT id FROM posts WHERE title='{u}'",
+        field: 'q',
+        goal: 'Stack an INSERT that creates a new admin user.',
+        reconNotes: [
+          'users(id, username, pw_hash, role).',
+          'Insert a row with role=\'admin\' and a known password hash.',
+        ],
+        hints: [
+          "Payload:  '; INSERT INTO users (username, pw_hash, role) VALUES ('mallory','known_hash','admin'); --",
+        ],
+        check(p) {
+          const ok = /;\s*insert\s+into\s+users.+values\s*\(.+admin/i.test(p) && /(--|\/\*|#)/.test(p);
+          return ok
+            ? { ok: true, narrate: 'New row in users. Mallory is now admin.' }
+            : { ok: false, narrate: 'INSERT not detected.' };
+        },
+        unlockTokens: ['INSERT INTO', 'VALUES'],
+        defense: {
+          title: 'Parameters + Read-Only DB Role for Read Endpoints',
+          body: 'A search endpoint should connect as a read-only DB user. Even with stacking, INSERT fails.',
+          code:
+`-- Search service connects as app_reader:
+GRANT SELECT ON posts, products TO app_reader;
+-- INSERT/UPDATE/DELETE are denied → stacked attack returns permission error.`,
+          tip: 'Match DB privileges to endpoint intent.',
+        },
+      },
+      3: {
+        id: '6.3', name: 'Burning the Logs',
+        endpoint: 'POST /search?q={u}',
+        query: "SELECT id FROM posts WHERE title='{u}'",
+        field: 'q',
+        goal: 'Stack a DROP TABLE on the audit_log to cover tracks.',
+        reconNotes: [
+          'audit_log table records every admin action.',
+          "DROP TABLE audit_log; — irreversible.",
+        ],
+        hints: [
+          "Payload:  '; DROP TABLE audit_log; --",
+        ],
+        check(p) {
+          const ok = /;\s*drop\s+table\s+audit_log/i.test(p) && /(--|\/\*|#)/.test(p);
+          return ok
+            ? { ok: true, narrate: 'audit_log gone. Future you would not approve.' }
+            : { ok: false, narrate: 'DROP not detected.' };
+        },
+        unlockTokens: ['DROP TABLE'],
+        defense: {
+          title: 'No DDL for App Roles',
+          body: 'Application DB users should never have DDL (DROP/CREATE/ALTER). Reserve those for migration tools.',
+          code:
+`-- Migration role:  has DDL.
+-- App role:        SELECT/INSERT/UPDATE only on specific tables.
+-- Even successful injection cannot DROP.`,
+          tip: 'Role separation neutralizes most catastrophic stacking attacks.',
+        },
+      },
+      4: {
+        id: '6.4', name: 'Privilege Escalation',
+        endpoint: 'POST /search?q={u}',
+        query: "SELECT id FROM posts WHERE title='{u}'",
+        field: 'q',
+        goal: 'Stack an UPDATE that promotes the existing user "alice" to admin.',
+        reconNotes: [
+          'No need for INSERT — alice exists. UPDATE her role to \'admin\'.',
+        ],
+        hints: [
+          "Payload:  '; UPDATE users SET role='admin' WHERE username='alice'; --",
+        ],
+        check(p) {
+          const ok = /;\s*update\s+users\s+set\s+role\s*=\s*['"]admin['"]\s+where\s+username\s*=\s*['"]alice['"]/i.test(p) && /(--|\/\*|#)/.test(p);
+          return ok
+            ? { ok: true, narrate: 'alice is admin. Lateral promotion complete.' }
+            : { ok: false, narrate: 'UPDATE shape not matched.' };
+        },
+        unlockTokens: ['UPDATE', 'SET'],
+        defense: {
+          title: 'Triggers + Audit on Role Changes',
+          body: 'Trigger on UPDATE users WHERE role changed → write to a separate audit DB the app role cannot reach.',
+          code:
+`CREATE TRIGGER audit_role_changes
+  AFTER UPDATE ON users
+  FOR EACH ROW
+  WHEN OLD.role IS DISTINCT FROM NEW.role
+  EXECUTE FUNCTION write_audit_external();`,
+          tip: 'Audit must live where the attacker cannot. A separate DB or append-only log service.',
+        },
+      },
+      5: {
+        id: '6.5', name: 'The Clean Heist',
+        endpoint: 'POST /search?q={u}',
+        query: "SELECT id FROM posts WHERE title='{u}'",
+        field: 'q',
+        goal: 'In one payload: insert admin, drop audit_log, comment out the rest.',
+        reconNotes: [
+          'Three statements in one chain.',
+          'Each separated by ;  ending with -- to neutralize the trailing.',
+        ],
+        hints: [
+          'Chain INSERT, then DROP, then comment.',
+          "Payload:  '; INSERT INTO users (username, pw_hash, role) VALUES ('mallory','h','admin'); DROP TABLE audit_log; --",
+        ],
+        check(p) {
+          const ins  = /;\s*insert\s+into\s+users/i.test(p);
+          const drop = /;\s*drop\s+table\s+audit_log/i.test(p);
+          const cmt  = /(--|\/\*|#)/.test(p);
+          return (ins && drop && cmt)
+            ? { ok: true, narrate: 'Mallory exists. The audit table does not. The breach will not be reconstructed.' }
+            : { ok: false, narrate: 'Chain incomplete.' };
+        },
+        unlockTokens: [],
+        defense: {
+          title: 'The Five-Layer Defense',
+          body: 'Parameters, no-stacking driver flag, read-only role per endpoint, no DDL for app, audit to external store.',
+          code: `// All five together. Any one alone leaves a path. All five = path closed.`,
+          tip: 'Real systems get all five. Anything less is gambling.',
+        },
+      },
+    },
+    sandbox(seed) {
+      const rand = mulberry32(seed);
+      const acts = [
+        { kw: 'INSERT', re: /;\s*insert\s+into/i,  desc: 'insert a new admin user' },
+        { kw: 'UPDATE', re: /;\s*update\s+users\s+set/i, desc: 'promote an existing user to admin' },
+        { kw: 'DROP',   re: /;\s*drop\s+table/i,   desc: 'drop the audit_log table' },
+      ];
+      const act = acts[Math.floor(rand() * acts.length)];
+      return {
+        id: `6.S-${seed}`, name: `Sandbox: ${act.kw}`,
+        endpoint: 'POST /q?x={u}', query: "SELECT id FROM t WHERE x='{u}'", field: 'x',
+        goal: `Stack a query to ${act.desc}.`,
+        reconNotes: [
+          `Action required: ${act.kw}.`,
+          'Sandbox: cheatsheet definitions are visible.',
+        ],
+        hints: [],
+        check(p) {
+          const ok = act.re.test(p) && /(--|\/\*|#)/.test(p);
+          return ok ? { ok: true, narrate: `${act.kw} stacked successfully.` } : { ok: false, narrate: 'Wrong action.' };
+        },
+        unlockTokens: [],
+        defense: { title: 'Sandbox Cleared', body: 'Same defenses.', code: '// See cards.', tip: 'Re-roll.' },
+        sandbox: true,
+      };
+    },
+  },
+  // Chapters 7 – 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
 };
 
 const KNOWN_TOKENS = [
