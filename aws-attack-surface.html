@@ -2104,7 +2104,204 @@ GRANT SELECT, INSERT, UPDATE ON specific_tables TO app;`,
       };
     },
   },
-  // NoSQL bonus chapter still to author — see DESIGN.md §11.
+  9: {
+    id: 9, name: 'NoSQL (Bonus)', class: 'nosql',
+    intro: 'Document stores have their own injections. Operators replace SQL keywords; the trust failure is the same.',
+    levels: {
+      1: {
+        id: '9.1', name: 'The Operator',
+        endpoint: 'POST /login  (JSON body)',
+        query: 'db.users.findOne({ username: <u>, password: <p> })',
+        field: 'password',
+        goal: 'Bypass login by sending an operator object instead of a string for password.',
+        reconNotes: [
+          'Endpoint expects { username, password } JSON.',
+          'Mongo accepts { "$ne": null } — "not equal to null" — which is true for any stored hash.',
+          'Naive bodyParser passes through nested objects unchanged.',
+        ],
+        hints: [
+          'Send password as an object, not a string.',
+          'Payload (password field):  {"$ne": null}',
+        ],
+        check(p) {
+          const ok = /\$ne|\$gt|\$exists|\$where|\$regex/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'findOne returned alice. Auth bypassed without knowing the password.' }
+            : { ok: false, narrate: 'No Mongo operator detected.' };
+        },
+        unlockTokens: ['{"$ne": null}', '{"$gt": ""}'],
+        defense: {
+          title: 'Cast Inputs to Strings; Validate Schema',
+          body: 'If username/password must be strings, enforce it at the boundary.',
+          code:
+`// Express + zod:
+const Body = z.object({ username: z.string().max(64), password: z.string().max(128) });
+const { username, password } = Body.parse(req.body);
+// Now password is guaranteed a string — operator injection impossible.`,
+          tip: 'Type-validate every JSON input. Mongoose strict mode helps but is not sufficient alone.',
+        },
+      },
+      2: {
+        id: '9.2', name: 'The Lazy Probe',
+        endpoint: 'POST /login (JSON)',
+        query: 'db.users.findOne({ username: u, password: p })',
+        field: 'password',
+        goal: 'Use a regex operator to discover whether captain\'s password starts with "a".',
+        reconNotes: [
+          '{"$regex": "^a"} matches passwords starting with "a".',
+          'Combined with a known username, the response shape is the oracle.',
+        ],
+        hints: [
+          'Send: { username: "captain", password: { "$regex": "^a" } }',
+          'In the password field box: {"$regex": "^a"}',
+        ],
+        check(p) {
+          const ok = /\$regex/i.test(p) && /\^/.test(p);
+          return ok
+            ? { ok: true, narrate: 'Login succeeds — captain\'s password starts with "a". Bisect from here.' }
+            : { ok: false, narrate: 'No regex anchored at start of string.' };
+        },
+        unlockTokens: ['$regex', '^', '$'],
+        defense: {
+          title: 'Schema + Operator Stripping',
+          body: 'Strip $-prefixed keys from inbound JSON before they reach the query.',
+          code:
+`function strip(obj) {
+  if (Array.isArray(obj)) return obj.map(strip);
+  if (obj && typeof obj === 'object') {
+    return Object.fromEntries(
+      Object.entries(obj)
+        .filter(([k]) => !k.startsWith('$'))
+        .map(([k, v]) => [k, strip(v)])
+    );
+  }
+  return obj;
+}`,
+          tip: 'Many Mongo libraries now do this by default — check yours.',
+        },
+      },
+      3: {
+        id: '9.3', name: 'The Server-Side Script',
+        endpoint: 'POST /search (JSON)',
+        query: 'db.posts.find({ $where: <user-controlled JS> })',
+        field: 'where',
+        goal: 'Use $where with a sleep loop to confirm a JS-eval injection.',
+        reconNotes: [
+          '$where evaluates JavaScript on the DB. Time oracles are trivial.',
+          'JS sleep:  function() { var d = Date.now(); while (Date.now() - d < 3000) {}  return true; }',
+        ],
+        hints: [
+          'Inject a $where with a busy-wait.',
+          "Payload:  {\"$where\": \"function(){var d=Date.now();while(Date.now()-d<3000){}return true;}\"}",
+        ],
+        check(p) {
+          const ok = /\$where/i.test(p) && /(date\.now|sleep|while\s*\()/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Response landed in 3.2s. JS execution on the DB confirmed.' }
+            : { ok: false, narrate: 'No $where with a delay.' };
+        },
+        unlockTokens: ['$where'],
+        defense: {
+          title: 'Disable $where Entirely',
+          body: '$where is rarely needed. Disable it in the driver / on the server.',
+          code:
+`# mongod.conf:
+security:
+  javascriptEnabled: false`,
+          tip: 'Most workloads do not need server-side JS. Disable by default.',
+        },
+      },
+      4: {
+        id: '9.4', name: 'The Aggregation',
+        endpoint: 'POST /report (pipeline JSON)',
+        query: 'db.orders.aggregate(<pipeline from user>)',
+        field: 'pipeline',
+        goal: 'Inject a $lookup stage that joins users into the orders aggregation, then projects pw_hash.',
+        reconNotes: [
+          'Endpoint takes a user-supplied pipeline (it should not).',
+          '$lookup pulls in another collection; $project picks fields.',
+        ],
+        hints: [
+          'Add a $lookup from users + $project pw_hash.',
+          'Payload (pipeline):  [{"$lookup":{"from":"users","localField":"user_id","foreignField":"_id","as":"u"}},{"$project":{"u.pw_hash":1}}]',
+        ],
+        check(p) {
+          const ok = /\$lookup/i.test(p) && /\$project/i.test(p) && /pw_hash/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Aggregation returns each order joined with the user\'s pw_hash.' }
+            : { ok: false, narrate: 'Pipeline missing lookup or projection of the secret field.' };
+        },
+        unlockTokens: ['$lookup', '$project'],
+        defense: {
+          title: 'Never Accept Pipelines from Users',
+          body: 'Build pipelines server-side from validated parameters. The user picks parameters, not stages.',
+          code:
+`// Bad:  db.orders.aggregate(req.body.pipeline)
+// Good: db.orders.aggregate([
+//   { $match: { user_id: req.user.id } },
+//   { $sort:  { createdAt: -1 } },
+//   { $limit: 50 }
+// ]);`,
+          tip: 'Treat aggregation pipelines like SQL — never user-controlled.',
+        },
+      },
+      5: {
+        id: '9.5', name: 'The Type Confusion',
+        endpoint: 'PATCH /user/profile  (JSON)',
+        query: 'db.users.updateOne({_id: req.user.id}, {$set: <user object>})',
+        field: 'updates',
+        goal: 'Self-promote to admin via a malformed $set on a hidden field.',
+        reconNotes: [
+          'Endpoint allows updates to your own profile.',
+          'Backend forgot to allowlist which fields can be set.',
+          'Send role: "admin" inside the $set — it will write.',
+        ],
+        hints: [
+          'Inside the updates payload, include role: "admin".',
+          'Payload:  {"$set": {"role": "admin"}}',
+        ],
+        check(p) {
+          const ok = /\$set/i.test(p) && /role/i.test(p) && /admin/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'updateOne ran with $set role=admin. You wrote your own role.' }
+            : { ok: false, narrate: '$set with role/admin missing.' };
+        },
+        unlockTokens: ['$set'],
+        defense: {
+          title: 'Allowlist Updatable Fields',
+          body: 'Define exactly which fields a user may set. Drop the rest.',
+          code:
+`const Patch = z.object({
+  displayName: z.string().max(64).optional(),
+  bio:         z.string().max(512).optional(),
+}).strict();
+const updates = Patch.parse(req.body);
+await db.users.updateOne({ _id: req.user.id }, { $set: updates });`,
+          tip: '"strict()" rejects unknown keys outright — exactly what you want for PATCH endpoints.',
+        },
+      },
+    },
+    sandbox(seed) {
+      const rand = mulberry32(seed);
+      const ops = ['$ne', '$regex', '$where', '$gt'];
+      const op = ops[Math.floor(rand() * ops.length)];
+      return {
+        id: `9.S-${seed}`, name: `Sandbox: ${op}`,
+        endpoint: 'POST /x (JSON)', query: 'db.t.findOne(<input>)', field: 'body',
+        goal: `Build a payload using ${op} that bypasses or leaks.`,
+        reconNotes: [`Operator: ${op}.`, 'Sandbox: cheatsheet definitions are visible.'],
+        hints: [],
+        check(p) {
+          const re = new RegExp(op.replace('$', '\\$'), 'i');
+          return re.test(p) ? { ok: true, narrate: 'Operator landed.' } : { ok: false, narrate: 'Wrong operator.' };
+        },
+        unlockTokens: [],
+        defense: { title: 'Sandbox Cleared', body: 'Same defenses.', code: '// See cards.', tip: 'Re-roll.' },
+        sandbox: true,
+      };
+    },
+  },
+  // Boss dungeon to author next — see DESIGN.md §11.
 };
 
 const KNOWN_TOKENS = [
