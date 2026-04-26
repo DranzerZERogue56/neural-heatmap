@@ -1745,7 +1745,180 @@ GRANT SELECT ON posts, products TO app_reader;
       };
     },
   },
-  // Chapters 7 – 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
+  7: {
+    id: 7, name: 'Second-Order', class: 'second-order',
+    intro: 'You plant a payload today. Tomorrow, a different query — written by someone careful — runs it.',
+    levels: {
+      1: {
+        id: '7.1', name: 'The Sown Field',
+        endpoint: 'POST /signup  (input: username)',
+        query: "INSERT INTO users(username, pw_hash) VALUES('{u}', '...')",
+        field: 'username',
+        goal: 'Plant a payload in the username field. The signup itself parameterizes — but later code may not.',
+        reconNotes: [
+          'Signup uses prepared statements: this insert is safe.',
+          'The data is stored verbatim — including quotes and SQL fragments.',
+          "Plant:  admin'-- "
+        ],
+        hints: [
+          'Pick a username with embedded SQL syntax.',
+          "Plant: admin'--",
+        ],
+        check(p) {
+          const ok = /'/.test(p) && /(--|\/\*|#|or\s)/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Signup OK. Your row in users.username now contains live SQL syntax.' }
+            : { ok: false, narrate: 'Plant a payload that will detonate later — quotes + comment or OR.' };
+        },
+        unlockTokens: [],
+        defense: {
+          title: 'Parameterize Reads Too',
+          body: 'Storing user input is fine — re-using it in a future concatenated query is not.',
+          code: `// All queries that touch users.username later must also be parameterized.`,
+          tip: 'Treat every value coming out of the DB as untrusted. It came from input once.',
+        },
+      },
+      2: {
+        id: '7.2', name: 'The Detonation',
+        endpoint: 'GET /profile  (uses your stored username)',
+        query: "SELECT * FROM activity WHERE owner='{stored_username}'",
+        field: 'stored_username',
+        goal: "Confirm the payload from 7.1 detonates: the stored \"admin'--\" breaks this query.",
+        reconNotes: [
+          '/profile reads users.username and concatenates it into the activity query — unsanitized.',
+          "Stored value: admin'--   →   SELECT * FROM activity WHERE owner='admin'-- '",
+          "The trailing -- comments out the closing quote, query runs as if owner='admin'.",
+        ],
+        hints: [
+          "The payload is your stored username from 7.1. Submit:  admin'--",
+        ],
+        check(p) {
+          const ok = /admin'\s*(--|\/\*|#)/i.test(p);
+          return ok
+            ? { ok: true, narrate: '/profile returns admin\'s activity log. Plant detonated.' }
+            : { ok: false, narrate: 'Wrong payload — re-use the planted username.' };
+        },
+        unlockTokens: [],
+        defense: {
+          title: 'Audit Every Concatenated Query',
+          body: 'Even one concatenation downstream of a stored value re-opens the entire surface. Static analysis helps.',
+          code: `// Tools: semgrep rules for "string + variable" in SQL contexts.`,
+          tip: 'A code-search for "+" near "SELECT" or "WHERE" finds most of these.',
+        },
+      },
+      3: {
+        id: '7.3', name: 'The Newsletter',
+        endpoint: 'POST /newsletter (input: display_name)',
+        query: "UPDATE prefs SET display='{u}' WHERE user_id=...",
+        field: 'display_name',
+        goal: 'Store a payload in display_name that triggers when the daily mailer concatenates it into a UNION-able query.',
+        reconNotes: [
+          'Daily job: SELECT email, display FROM prefs WHERE active=1 — but the templating later does:',
+          '  "Hi " + row.display + ", here\'s your news"  → into a logging query that concatenates.',
+          'A UNION SELECT in display_name causes the logger to leak rows.',
+        ],
+        hints: [
+          "Plant something like:  ' UNION SELECT pw_hash FROM users WHERE username='captain'-- ",
+        ],
+        check(p) {
+          const ok = /union\s+select/i.test(p) && /(--|\/\*|#)/.test(p) && /'/.test(p);
+          return ok
+            ? { ok: true, narrate: 'Tomorrow\'s mailer log will contain captain\'s hash.' }
+            : { ok: false, narrate: 'No UNION in the plant.' };
+        },
+        unlockTokens: [],
+        defense: {
+          title: "Parameterize the Mailer's Queries Too",
+          body: 'Background jobs are part of the attack surface. Audit them like API endpoints.',
+          code: `// Pipeline: lint, semgrep, and code review apply to cron jobs and workers.`,
+          tip: 'Attackers love async paths because devs forget them.',
+        },
+      },
+      4: {
+        id: '7.4', name: 'The Slow Burn',
+        endpoint: 'POST /comment (input: body)',
+        query: "INSERT INTO comments(post_id, body) VALUES(?, ?)",
+        field: 'body',
+        goal: 'Store a payload that, when an admin opens the moderation queue, leaks data via UPDATEXML.',
+        reconNotes: [
+          'Insert is parameterized (good). Moderation page builds a query like:',
+          '  SELECT * FROM comments WHERE id IN (' + concatenated_ids + ') — fine on its own',
+          '  ...but it also runs SELECT \'<body>\' as preview — the body is concatenated into a SELECT for preview rendering.',
+          "Use UPDATEXML in the body to leak when admin views.",
+        ],
+        hints: [
+          "Plant body:  ' || (SELECT UPDATEXML(1,CONCAT(0x7e,(SELECT pw_hash FROM users WHERE username='captain')),1)) || '",
+        ],
+        check(p) {
+          const ok = /updatexml/i.test(p) && /select\s+pw_hash/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Next time an admin opens moderation, the error channel screams the hash.' }
+            : { ok: false, narrate: 'No XPATH-error vector in the plant.' };
+        },
+        unlockTokens: [],
+        defense: {
+          title: 'Treat Stored Strings as Untrusted in Every Sink',
+          body: 'Output encoding, parameterized queries, and read-only DB roles for read-only paths.',
+          code: `// "All input is data" — including data from your own DB once it touches a query string.`,
+          tip: 'Tracking dataflow from sources (input, DB) to sinks (queries, exec) is the core of secure code review.',
+        },
+      },
+      5: {
+        id: '7.5', name: 'The Sleeper Agent',
+        endpoint: 'POST /signup (input: username)',
+        query: "INSERT INTO users(username) VALUES('?')  -- safe",
+        field: 'username',
+        goal: 'Plant a payload that survives ID-based admin lookup and elevates you on first admin click.',
+        reconNotes: [
+          'Admin tool runs:  SELECT * FROM users WHERE username = \'\' + searched + \'\' — concatenated.',
+          'When admin types your username into search, the stored payload runs in their session context.',
+          "Plant:  ' OR 1=1; UPDATE users SET role='admin' WHERE username='mallory'; --",
+        ],
+        hints: [
+          'Stack an UPDATE inside the planted username.',
+          "Plant: ' OR 1=1; UPDATE users SET role='admin' WHERE username='mallory'; --",
+        ],
+        check(p) {
+          const ok = /'/.test(p) && /;\s*update\s+users\s+set\s+role/i.test(p) && /(--|\/\*|#)/.test(p);
+          return ok
+            ? { ok: true, narrate: 'When admin searches for you, your stored payload promotes mallory to admin in their session.' }
+            : { ok: false, narrate: 'Plant lacks the stacked UPDATE.' };
+        },
+        unlockTokens: [],
+        defense: {
+          title: 'No Concatenation in Admin Tools Either',
+          body: 'Internal tools are often "trusted" and skip parameterization. Attackers love this.',
+          code: `// Internal != safe. Same rules apply.`,
+          tip: 'Threat-model your internal tools — they often run with higher privileges than public APIs.',
+        },
+      },
+    },
+    sandbox(seed) {
+      const rand = mulberry32(seed);
+      const sinks = ['logger', 'mailer', 'admin search', 'moderation preview'];
+      const sink = sinks[Math.floor(rand() * sinks.length)];
+      return {
+        id: `7.S-${seed}`, name: `Sandbox: plant for ${sink}`,
+        endpoint: 'POST /signup', query: "INSERT INTO users(username) VALUES('{u}')", field: 'username',
+        goal: `Plant a username that detonates when the ${sink} concatenates it into a follow-up query.`,
+        reconNotes: [
+          `Downstream sink: ${sink}.`,
+          'Sandbox: cheatsheet definitions are visible.',
+        ],
+        hints: [],
+        check(p) {
+          const dangerous = /'/.test(p) && /(union\s+select|update\s+|insert\s+|extractvalue|updatexml|--|\/\*|#)/i.test(p);
+          return dangerous
+            ? { ok: true, narrate: `Plant lodged. Detonates on next ${sink} run.` }
+            : { ok: false, narrate: 'Inert plant.' };
+        },
+        unlockTokens: [],
+        defense: { title: 'Sandbox Cleared', body: 'Same defenses.', code: '// See cards.', tip: 'Re-roll.' },
+        sandbox: true,
+      };
+    },
+  },
+  // Chapter 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
 };
 
 const KNOWN_TOKENS = [
