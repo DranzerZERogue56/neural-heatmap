@@ -1842,7 +1842,7 @@ GRANT SELECT ON posts, products TO app_reader;
         goal: 'Store a payload that, when an admin opens the moderation queue, leaks data via UPDATEXML.',
         reconNotes: [
           'Insert is parameterized (good). Moderation page builds a query like:',
-          '  SELECT * FROM comments WHERE id IN (' + concatenated_ids + ') — fine on its own',
+          '  SELECT * FROM comments WHERE id IN ({concatenated_ids}) — fine on its own',
           '  ...but it also runs SELECT \'<body>\' as preview — the body is concatenated into a SELECT for preview rendering.',
           "Use UPDATEXML in the body to leak when admin views.",
         ],
